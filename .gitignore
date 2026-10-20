@@ -1,0 +1,8 @@
+build/
+bin/
+dist/
+importer/build/
+importer/dist/
+importer/*.spec
+__pycache__/
+*.log

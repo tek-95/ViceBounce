@@ -1,0 +1,18 @@
+SABounce contains unmodified third-party libraries; their licenses remain in force.
+Plugin-SDK: https://github.com/DK22Pac/plugin-sdk (15f15b60bbf74c106e1b496ff92c98764abf4605), zlib; safetyhook (bundled in Plugin-SDK) is BSD-2-Clause.
+ViceBounce: https://github.com/tek-95/ViceBounce (MIT). The effect math, beat map, playback and music importer are derived from it.
+Python 3.12: https://www.python.org/downloads/source/ (PSF and bundled notices).
+NumPy 2.5.3: https://github.com/numpy/numpy/tree/v2.5.3 (BSD and bundled component notices).
+SoundFile 0.14.0: https://pypi.org/project/soundfile/0.14.0/#files (BSD-3-Clause).
+libsndfile 1.2.2, included via the official unmodified SoundFile Windows wheel:
+https://github.com/libsndfile/libsndfile/tree/1.2.2 (LGPL-2.1).
+The wheel also contains the external audio codec libraries listed in SoundFile's upstream build configuration;
+their sources include https://www.mpg123.de/download/ , https://lame.sourceforge.io/ and https://xiph.org/downloads/ .
+CFFI 2.1.1: https://pypi.org/project/cffi/2.1.1/#files (MIT).
+pycparser 3.11: https://pypi.org/project/pycparser/3.11/#files (BSD).
+typing_extensions 4.16.0: https://pypi.org/project/typing-extensions/4.16.0/#files (PSF).
+PyInstaller 6.22.3: https://github.com/pyinstaller/pyinstaller (GPL with bootloader exception).
+Original importer source and rebuild instructions are supplied in importer/ (source/importer in the source archive).
+You may rebuild the importer with modified/replacement versions of its libraries.
+There is no music, game executable, user configuration or audio cache in this archive.
+The source archive of each release (its name starts with SABounce-source-) also contains the unmodified source tarballs of libsndfile and SoundFile in ThirdParty/Sources.

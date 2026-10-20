@@ -1,0 +1,4 @@
+numpy==2.5.3
+soundfile==0.14.0
+cffi==2.1.1
+pyinstaller==6.22.3
