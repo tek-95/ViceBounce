@@ -20,6 +20,7 @@
 #include "LightCallsites.h"
 #include "GameLayout.h"
 #include "GameLayoutCheck.h"
+#include "Diagnostics.h"
 #include "MusicPlayback.h"
 #include "BeatMap.h"
 #include "MusicImporter.h"
@@ -144,9 +145,17 @@ bool Focused() {
     GetWindowThreadProcessId(GetForegroundWindow(),&process);
     return process==GetCurrentProcessId();
 }
+#ifdef VICEBOUNCE_DIAGNOSTICS
+void DiagHeartbeat();
+#endif
 void Tick() {
     // Runs at the 3D/2D boundary, after deferred transparent vehicle atomics.
+    DIAG_STAGE("Tick:restore");
     RestoreFrames();
+#ifdef VICEBOUNCE_DIAGNOSTICS
+    DiagHeartbeat();
+#endif
+    DIAG_STAGE("Tick");
     static ULONGLONG previous=GetTickCount64();
     static std::array<bool,10> wasDown{};
     constexpr int keys[]={VK_F6,VK_F7,VK_PRIOR,VK_NEXT,VK_HOME,VK_END,VK_F8,VK_F9,VK_F10,VK_F11};
@@ -220,6 +229,36 @@ struct SavedBones { RwMatrix* matrices; std::vector<RwMatrix> originals; };
 std::vector<SavedBones> savedBones;
 struct VehicleGroundOffset { CVehicle* vehicle; float z; };
 std::vector<VehicleGroundOffset> groundOffsets;
+#ifdef VICEBOUNCE_DIAGNOSTICS
+void DiagHeartbeat() {
+    static bool first=true;
+    if(first) {first=false;diag::ListModules();diag::StartWatchdog();}
+    ++diag::frames;
+    static bool wasCutscene=false,known=false;
+    const bool cutscene=CutscenePlaying();
+    if(!known||cutscene!=wasCutscene) {
+        Log(std::string("diag: cutscene flag ")+(cutscene?"set":"clear")+" at frame "+std::to_string(diag::frames));
+        wasCutscene=cutscene;known=true;
+    }
+    static ULONGLONG nextBeat=0;
+    static int beats=0;
+    const auto now=GetTickCount64();
+    if(now>=nextBeat&&beats<200) {
+        nextBeat=now+2000;++beats;
+        Log("diag: heartbeat frame="+std::to_string(diag::frames)+" cutscene="+std::to_string(int(cutscene))+
+            " codePause="+std::to_string(int(CTimer::m_CodePause))+" userPause="+std::to_string(int(CTimer::m_UserPause))+
+            " replay="+std::to_string(int(ReplayPlaying()))+" savedFrames="+std::to_string(savedFrames.size())+
+            " savedBones="+std::to_string(savedBones.size())+" importerRunning="+std::to_string(int(importer.Running()))+
+            " stage="+diag::stage);
+    }
+}
+void DiagCutsceneDelete(const char* what,CCutsceneObject* actor) {
+    static int logged=0;
+    if(logged++>=120) return;
+    Log(std::string("diag: ")+what+" model="+std::to_string(actor->m_nModelIndex)+" savedFrames="+std::to_string(savedFrames.size())+
+        " savedBones="+std::to_string(savedBones.size())+" frame="+std::to_string(diag::frames));
+}
+#endif
 
 void WheelGroundPoints(RwFrame* frame,const CMatrix& basis,Scale scale,GroundAnchor& anchor,int depth=0) {
     if(!frame||depth>=16) return;
@@ -494,6 +533,7 @@ CVehicle* PedBounceVehicle(CPed* ped) {
     return ped->m_pVehicle?ped->m_pVehicle:ped->m_pObjectiveVehicle;
 }
 void BeforePedRender(CPed* ped) {
+    DIAG_STAGE("BeforePedRender");
     if(!ped||cfg.amplitude<=0||Paused()) return;
     auto* vehicle=PedBounceVehicle(ped);
     const int effect=PedEffect(cfg.allPeople,EffectActive(vehicle),ped->m_bInVehicle);
@@ -508,14 +548,18 @@ void BeforePedRender(CPed* ped) {
     if(!ped->m_bInVehicle&&EffectActive(vehicle)&&!doorLogged){Log("door contact/entry actor rendered before in-vehicle flag");doorLogged=true;}
 }
 void __fastcall RenderCutscene(CCutsceneObject* actor,void*) {
+    DIAG_STAGE("RenderCutscene:deform");
     if((cfg.enabled||cfg.allPeople)&&cfg.amplitude>0&&!Paused()) {
         DeformCutsceneActor(actor);
         static bool logged=false;
         if(!logged){Log("cutscene actors and attached props rendered with bounce");logged=true;}
     }
+    DIAG_STAGE("RenderCutscene:game");
     originalCutsceneRender(actor);
+    DIAG_STAGE("RenderCutscene:done");
 }
 void RestoreFrames() {
+    DIAG_STAGE("RestoreFrames");
     for(const auto& saved:savedBones)
         std::memcpy(saved.matrices,saved.originals.data(),saved.originals.size()*sizeof(RwMatrix));
     savedBones.clear();
@@ -532,24 +576,42 @@ void RestoreFrames() {
     cutsceneTransforms.clear();
 }
 void* __fastcall DeleteCutscene(CCutsceneObject* actor,void*,unsigned flags) {
+    DIAG_STAGE("DeleteCutscene:restore");
+#ifdef VICEBOUNCE_DIAGNOSTICS
+    DiagCutsceneDelete("cutscene object destructor",actor);
+#endif
     RestoreFrames(); // Drop all borrowed RW/bone pointers while owners are still alive.
-    return originalCutsceneDelete(actor,flags);
+    DIAG_STAGE("DeleteCutscene:game");
+    auto* result=originalCutsceneDelete(actor,flags);
+    DIAG_STAGE("DeleteCutscene:done");
+    return result;
 }
 void __fastcall DeleteCutsceneRw(CCutsceneObject* actor,void*) {
+    DIAG_STAGE("DeleteCutsceneRw:restore");
+#ifdef VICEBOUNCE_DIAGNOSTICS
+    DiagCutsceneDelete("cutscene DeleteRwObject",actor);
+#endif
     RestoreFrames();
+    DIAG_STAGE("DeleteCutsceneRw:game");
     originalCutsceneDeleteRw(actor);
+    DIAG_STAGE("DeleteCutsceneRw:done");
 }
 void __fastcall RenderTransport(CVehicle* vehicle,void*) {
+    DIAG_STAGE("RenderTransport:deform");
     BeforeRender(vehicle);
     auto* previous=lightingVehicle;
     lightingVehicle=EffectActive(vehicle)?vehicle:nullptr;
+    DIAG_STAGE("RenderTransport:game");
     originalRenders[vehicle->m_nVehicleClass](vehicle);
+    DIAG_STAGE("RenderTransport:done");
     lightingVehicle=previous;
 }
 void __fastcall PreRenderTransport(CVehicle* vehicle,void*) {
+    DIAG_STAGE("PreRenderTransport");
     auto* previous=lightingVehicle;
     lightingVehicle=EffectActive(vehicle)?vehicle:nullptr;
     originalPreRenders[vehicle->m_nVehicleClass](vehicle);
+    DIAG_STAGE("PreRenderTransport:done");
     lightingVehicle=previous;
 }
 template<class Function> Function GameFunction(uintptr_t address) {
@@ -570,22 +632,27 @@ void __cdecl RegisterCorona(unsigned id,unsigned char r,unsigned char g,unsigned
     const CVector& position,float radius,float farClip,unsigned char type,unsigned char flare,unsigned char reflection,
     unsigned char check,unsigned char streak,float angle,bool longDistance,float nearClip) {
     using Fn=decltype(&RegisterCorona);
+    DIAG_STAGE("light:RegisterCorona");
     const auto transformed=LightPosition(position);
     GameFunction<Fn>(layout->registerCorona)(id,r,g,b,alpha,transformed,LightRadius(radius),farClip,type,flare,reflection,check,streak,angle,longDistance,nearClip);
     static bool logged=false;if(lightingVehicle&&!logged){Log("first automobile light registered; corona positions and size deformed");logged=true;}
 }
 void __cdecl UpdateCorona(unsigned id,const CVector& position,float farClip,float angle) {
+    DIAG_STAGE("light:UpdateCorona");
     const auto transformed=LightPosition(position);
     GameFunction<decltype(&UpdateCorona)>(layout->updateCorona)(id,transformed,farClip,angle);
 }
 void __cdecl AddPointLight(unsigned char type,CVector position,CVector direction,float range,float r,float g,float b,unsigned char fog,bool shadows) {
+    DIAG_STAGE("light:AddPointLight");
     GameFunction<decltype(&AddPointLight)>(layout->addPointLight)(type,LightPosition(position),LightDirection(direction),LightRadius(range),r,g,b,fog,shadows);
 }
 void __cdecl RegisterBrightLight(CVector position,CVector right,CVector up,CVector at,unsigned char r,unsigned char g,unsigned char b,unsigned char alpha) {
+    DIAG_STAGE("light:RegisterBrightLight");
     GameFunction<decltype(&RegisterBrightLight)>(layout->registerBrightLight)(LightPosition(position),LightDirection(right),LightDirection(up),LightDirection(at),r,g,b,alpha);
 }
 void __cdecl StoreLightShadow(CVehicle* vehicle,int id,RwTexture* texture,CVector* position,float frontX,float frontY,float sideX,float sideY,
     unsigned char r,unsigned char g,unsigned char b,float maxAngle) {
+    DIAG_STAGE("light:StoreLightShadow");
     auto transformed=LightPosition(*position);
     transformed.z=position->z; // The footprint remains projected onto the road.
     const auto front=LightDirection(CVector(frontX,frontY,0));
@@ -640,7 +707,12 @@ struct ViceBounce {
         GetModuleFileNameA(reinterpret_cast<HMODULE>(&__ImageBase),module,MAX_PATH);
         std::string dir(module);dir=dir.substr(0,dir.find_last_of("\\/")+1);
         iniPath=dir+"ViceBounce.ini";logPath=dir+"ViceBounce.log";
+#ifdef VICEBOUNCE_DIAGNOSTICS
+        diag::Install(logPath);
+        Log(std::string("ViceBounce 0.11.1 startup (diagnostic build); ")+plugin::GetGameVersionName());
+#else
         Log(std::string("ViceBounce 0.11.1 startup; ")+plugin::GetGameVersionName());
+#endif
         if(!CheckGame()) return;
         LoadConfig();
         savedFrames.reserve(256);
