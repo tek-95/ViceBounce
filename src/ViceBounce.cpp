@@ -12,6 +12,7 @@
 #include "BounceMath.h"
 #include <windows.h>
 #include <array>
+#include <type_traits>
 #include <fstream>
 #include <string>
 #include <cstring>
@@ -642,13 +643,22 @@ void __cdecl UpdateCorona(unsigned id,const CVector& position,float farClip,floa
     const auto transformed=LightPosition(position);
     GameFunction<decltype(&UpdateCorona)>(layout->updateCorona)(id,transformed,farClip,angle);
 }
-void __cdecl AddPointLight(unsigned char type,CVector position,CVector direction,float range,float r,float g,float b,unsigned char fog,bool shadows) {
+// The game passes CVector arguments by value, as three floats directly on the stack. Compilers that follow the
+// Itanium C++ ABI (MinGW, clang) pass a class with a user-provided copy constructor, like CVector, through a hidden
+// pointer instead, which does not match the game's calling convention. These functions therefore take and pass
+// plain structs, which every compiler passes as the game expects.
+struct GameVector { float x,y,z; };
+CVector ToCVector(GameVector v) { return CVector(v.x,v.y,v.z); }
+GameVector ToGameVector(const CVector& v) { return {v.x,v.y,v.z}; }
+void __cdecl AddPointLight(unsigned char type,GameVector position,GameVector direction,float range,float r,float g,float b,unsigned char fog,bool shadows) {
     DIAG_STAGE("light:AddPointLight");
-    GameFunction<decltype(&AddPointLight)>(layout->addPointLight)(type,LightPosition(position),LightDirection(direction),LightRadius(range),r,g,b,fog,shadows);
+    GameFunction<decltype(&AddPointLight)>(layout->addPointLight)(type,ToGameVector(LightPosition(ToCVector(position))),
+        ToGameVector(LightDirection(ToCVector(direction))),LightRadius(range),r,g,b,fog,shadows);
 }
-void __cdecl RegisterBrightLight(CVector position,CVector right,CVector up,CVector at,unsigned char r,unsigned char g,unsigned char b,unsigned char alpha) {
+void __cdecl RegisterBrightLight(GameVector position,GameVector right,GameVector up,GameVector at,unsigned char r,unsigned char g,unsigned char b,unsigned char alpha) {
     DIAG_STAGE("light:RegisterBrightLight");
-    GameFunction<decltype(&RegisterBrightLight)>(layout->registerBrightLight)(LightPosition(position),LightDirection(right),LightDirection(up),LightDirection(at),r,g,b,alpha);
+    GameFunction<decltype(&RegisterBrightLight)>(layout->registerBrightLight)(ToGameVector(LightPosition(ToCVector(position))),
+        ToGameVector(LightDirection(ToCVector(right))),ToGameVector(LightDirection(ToCVector(up))),ToGameVector(LightDirection(ToCVector(at))),r,g,b,alpha);
 }
 void __cdecl StoreLightShadow(CVehicle* vehicle,int id,RwTexture* texture,CVector* position,float frontX,float frontY,float sideX,float sideY,
     unsigned char r,unsigned char g,unsigned char b,float maxAngle) {
@@ -660,6 +670,15 @@ void __cdecl StoreLightShadow(CVehicle* vehicle,int id,RwTexture* texture,CVecto
     GameFunction<decltype(&StoreLightShadow)>(layout->storeLightShadow)(vehicle,id,texture,&transformed,front.x,front.y,side.x,side.y,r,g,b,maxAngle);
     static bool logged=false;if(lightingVehicle&&!logged){Log("first automobile projected light registered; road footprint deformed");logged=true;}
 }
+// Compile-time guard for the ABI problem described above: no argument of a function the game calls may be a class
+// that is not trivially copyable (references are fine, they are plain pointers in every ABI).
+template<class Function> struct GameCallable;
+template<class Result,class... Arguments> struct GameCallable<Result(__cdecl*)(Arguments...)> {
+    static constexpr bool value=((std::is_reference_v<Arguments>||std::is_trivially_copyable_v<Arguments>)&&...);
+};
+static_assert(GameCallable<decltype(&RegisterCorona)>::value&&GameCallable<decltype(&UpdateCorona)>::value&&
+    GameCallable<decltype(&AddPointLight)>::value&&GameCallable<decltype(&RegisterBrightLight)>::value&&
+    GameCallable<decltype(&StoreLightShadow)>::value,"a function called by the game takes a C++ class by value; use a plain struct");
 uintptr_t LightReplacement(uintptr_t target) {
     if(target==layout->registerCorona) return reinterpret_cast<uintptr_t>(&RegisterCorona);
     if(target==layout->updateCorona) return reinterpret_cast<uintptr_t>(&UpdateCorona);
