@@ -1,10 +1,14 @@
 #include "../src/BounceMath.h"
 #include "../src/BeatMap.h"
+#include "../src/GameLayoutCheck.h"
 #include <sstream>
 #include <array>
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <set>
+#include <string>
+#include <vector>
 #include <stdexcept>
 using namespace vicebounce;
 void Require(bool ok,const char* label){if(!ok)throw std::runtime_error(label);}
@@ -13,6 +17,60 @@ struct V3{float x,y,z;};
 struct Matrix{V3 right;unsigned flags;V3 up;unsigned p1;V3 at;unsigned p2;V3 pos;unsigned p3;};
 float Dot(V3 a,V3 b){return a.x*b.x+a.y*b.y+a.z*b.z;}
 float Length(V3 a){return std::sqrt(Dot(a,a));}
+
+// A fake executable image: lets the layout verifier run without a game, using exactly the code the plugin runs.
+struct FakeImage {
+    static constexpr uintptr_t base=0x400000;
+    std::vector<unsigned char> bytes=std::vector<unsigned char>(0x800000,0);
+    const unsigned char* At(uintptr_t address) const {Require(address>=base&&address-base+16<=bytes.size(),"layout address outside the image");return &bytes[address-base];}
+    unsigned char* Edit(uintptr_t address){return const_cast<unsigned char*>(At(address));}
+    uintptr_t Abs(uintptr_t address) const {return address;}
+    void Word(uintptr_t address,uint32_t value){std::memcpy(Edit(address),&value,4);}
+    void Call(uintptr_t address,uintptr_t target){*Edit(address)=0xE8;Word(address+1,uint32_t(target-(address+5)));}
+};
+FakeImage MakeImage(const GameLayout& layout){
+    FakeImage image;
+    for(const VehicleHook* hook:{&layout.automobile,&layout.boat,&layout.heli,&layout.plane,&layout.bike}){image.Word(hook->vtable+12*4,uint32_t(hook->preRender));image.Word(hook->vtable+13*4,uint32_t(hook->render));}
+    image.Word(layout.cutsceneVtable+2*4,uint32_t(layout.cutsceneDestructor));
+    image.Word(layout.cutsceneVtable+6*4,uint32_t(layout.cutsceneDeleteRw));
+    image.Word(layout.cutsceneVtable+13*4,uint32_t(layout.cutsceneRender));
+    for(const auto& signature:layout.signatures) std::memcpy(image.Edit(signature.address),signature.bytes,signature.size);
+    for(const auto& call:layout.calls) image.Call(call.address,call.target);
+    for(const auto& site:layout.lightCallsites) image.Call(site.address,site.target);
+    return image;
+}
+void CheckLayout(const GameLayout& layout){
+    const std::string name=layout.name;
+    FakeImage image=MakeImage(layout);
+    std::string failure;
+    Require(VerifyLayout(layout,image,failure),(name+" layout rejects an image built from its own tables: "+failure).c_str());
+    Require(layout.lightCallsites.size()==72,"every automobile light callsite must be listed");
+    std::set<uintptr_t> sites;
+    for(const auto& site:layout.lightCallsites){
+        Require(sites.insert(site.address).second,"duplicate light callsite");
+        Require(site.address>=0x401000&&site.address<0x670000,"light callsite outside the code section");
+        const uintptr_t targets[]={layout.registerCorona,layout.updateCorona,layout.addPointLight,layout.registerBrightLight,layout.storeLightShadow};
+        bool known=false;for(uintptr_t target:targets)known|=target==site.target;
+        Require(known,"light callsite targets an unknown light function");
+    }
+    // Any single wrong byte in any checked place must be noticed instead of patched blindly.
+    std::vector<uintptr_t> checked;
+    for(const VehicleHook* hook:{&layout.automobile,&layout.boat,&layout.heli,&layout.plane,&layout.bike}){checked.push_back(hook->vtable+12*4);checked.push_back(hook->vtable+13*4);}
+    for(int slot:{2,6,13}) checked.push_back(layout.cutsceneVtable+slot*4);
+    for(const auto& call:layout.calls) checked.push_back(call.address+1);
+    for(const auto& site:layout.lightCallsites) checked.push_back(site.address+1);
+    for(const auto& signature:layout.signatures) checked.push_back(signature.address);
+    for(uintptr_t address:checked){
+        FakeImage broken=MakeImage(layout);
+        *broken.Edit(address)^=0x40;
+        std::string why;
+        Require(!VerifyLayout(layout,broken,why)&&!why.empty(),(name+" layout accepted a corrupted image at "+detail::Hex(address)).c_str());
+    }
+    // The two executables must never accept each other's code.
+    const GameLayout& other=&layout==&layoutSteam?layout10EN:layoutSteam;
+    std::string otherFailure;
+    Require(!VerifyLayout(other,image,otherFailure),"layouts for different executables must not match one another");
+}
 int main(){try{
     BeatMap beatMap;
     std::istringstream beats("ViceBounceBeats 1\n370\n870\n1320\n1720\n");
@@ -176,6 +234,7 @@ int main(){try{
     Require(!DoorInteractionActive(58,131),"unrelated standing animation bounced");
     settings.enabled=false;auto disabled=GetScale(0.5,settings);Require(disabled.horizontal==1&&disabled.vertical==1,"disabled identity");
     settings.enabled=true;settings.amplitude=nan;auto finite=GetScale(nan,settings);Require(std::isfinite(finite.horizontal)&&std::isfinite(finite.vertical),"invalid input leaked to render");
-    std::cout<<"PASS: independent car/other transport toggles, 135 BPM timing, config validation, 40000 phase samples, exact restoration, 1000 occupant/light transforms and 1000 grounded wheel meshes\n";
+    CheckLayout(layoutSteam);CheckLayout(layout10EN);
+    std::cout<<"PASS: independent car/other transport toggles, 135 BPM timing, config validation, 40000 phase samples, exact restoration, Steam and 1.0 EN executable layouts, 1000 occupant/light transforms and 1000 grounded wheel meshes\n";
     return 0;
 }catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

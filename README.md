@@ -29,11 +29,13 @@ Squash and stretch cars, bikes, boats, aircraft and people — including Tommy, 
 
 ## Install
 
-Requires **classic GTA Vice City Steam**, **Windows 10/11 x64** and an **ASI loader** that loads plugins from `scripts`.
+Requires **GTA Vice City** (**classic Steam** or the **retail 1.0 English** `gta-vc.exe`), **Windows 10/11 x64** and an **ASI loader** that loads plugins from `scripts`.
 
 Download the ZIP from [Releases](https://github.com/tek-95/ViceBounce/releases), close the game and copy its `scripts` contents into the game's `scripts` folder. Keep your existing `ViceBounce.ini` when updating.
 
-Other game versions are currently unsupported.
+Other game versions (including the 1.1 patch) are currently unsupported. On startup the plugin checks the executable against byte signatures and disables itself, noting the reason in `ViceBounce.log`, if anything does not match.
+
+To check an executable without launching the game, build `tools/VerifyExe.cpp` (`clang++ -std=c++17 tools/VerifyExe.cpp -o VerifyExe`, or `cl /std:c++17 /EHsc`) and run `VerifyExe "path\to\gta-vc.exe"`.
 
 ## Music
 
