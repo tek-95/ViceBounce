@@ -35,7 +35,7 @@
 extern "C" IMAGE_DOS_HEADER __ImageBase;
 namespace {
 using namespace sabounce;
-constexpr const char* version="0.3.6";
+constexpr const char* version="0.3.7";
 Settings cfg;
 double phase=0;
 std::string iniPath,logPath;
@@ -454,6 +454,18 @@ void __fastcall DoHeadLightBeam(CVehicle* vehicle,void*,int light,CMatrix* matri
     deformed->up=DeformDirection(matrix->up,*vehicle->m_matrix,scale);
     deformed->at=DeformDirection(matrix->at,*vehicle->m_matrix,scale);
     deformed->pos=WorldLight(matrix->pos);
+    // The beam's alpha is (1-|dot(toCamera,forward)|)*32 cast to a byte: a stretched forward axis (length > 1) makes it
+    // negative when the camera looks along the beam, and the byte wraps to an opaque white beam. Forward (up) is kept
+    // unit length; the headlight's forward offset that it no longer scales is added to the position instead.
+    const float forwardLength=deformed->up.Magnitude();
+    if(forwardLength>1e-4f) {
+        float dummyY=0;
+        if(auto* model=reinterpret_cast<CVehicleModelInfo*>(CModelInfo::GetModelInfo(vehicle->m_nModelIndex));
+           model&&model->m_pVehicleStruct) dummyY=model->m_pVehicleStruct->m_avDummyPos[light==0?0:2].y;
+        const CVector unitForward=deformed->up/forwardLength;
+        deformed->pos+= (deformed->up-unitForward)*dummyY;
+        deformed->up=unitForward;
+    }
     auto* previous=lightingVehicle;lightingVehicle=nullptr; // the matrix is already deformed
     headLightBeamHook.thiscall<void>(vehicle,light,deformed,right);
     lightingVehicle=previous;
