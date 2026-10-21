@@ -21,7 +21,7 @@ You need three things:
 
 Then:
 
-1. From [Releases](../../releases) download **`SABounce-0.3.6.zip`**. This exact file, not `SABounce-source-0.3.6.zip`: the second
+1. From [Releases](../../releases) download **`SABounce-0.3.7.zip`**. This exact file, not `SABounce-source-0.3.7.zip`: the second
    one has no mod in it, only the code and licenses.
 2. If the game is running, close it.
 3. Drag the **`scripts` folder from the ZIP** (it holds `SABounce.asi`, `SABounce.ini` and `SABounceMusic.exe`) into your game's
@@ -123,7 +123,7 @@ Not affiliated with Rockstar Games. No game files, music or decompiled code are 
 
 Затем:
 
-1. Из раздела [Releases](../../releases) скачай файл **`SABounce-0.3.6.zip`**. Именно его, а не `SABounce-source-0.3.6.zip`:
+1. Из раздела [Releases](../../releases) скачай файл **`SABounce-0.3.7.zip`**. Именно его, а не `SABounce-source-0.3.7.zip`:
    во втором самого мода нет, только код и лицензии.
 2. Если игра открыта, закрой её.
 3. Перетащи **папку `scripts` из архива** (в ней `SABounce.asi`, `SABounce.ini` и `SABounceMusic.exe`) в папку игры, рядом с
