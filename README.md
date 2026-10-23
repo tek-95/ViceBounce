@@ -1,4 +1,4 @@
-# ViceBounce
+# <img src="docs/logo.png" width="24" alt=""> ViceBounce
 
 Make Vice City bounce to your music.
 
