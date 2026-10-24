@@ -1,7 +1,11 @@
 #pragma once
-// Verified Steam Render/PreRender light registration callsites for five transport classes.
+#include <cstdint>
+// Light registration callsites inside the Render/PreRender code of the five transport classes.
+// Every entry is a `call rel32` that the plugin redirects while a bouncing vehicle is being drawn.
 struct LightCallsite { uintptr_t address; uintptr_t target; };
-constexpr LightCallsite lightCallsites[]={
+
+// Steam executable (as verified by the original author).
+constexpr LightCallsite lightCallsitesSteam[]={
     {0x0058C36F,0x005675F0},
     {0x0058C534,0x00542690},
     {0x0058C594,0x00542690},
@@ -74,4 +78,82 @@ constexpr LightCallsite lightCallsites[]={
     {0x0060BDB2,0x00571710},
     {0x0060BDE2,0x005422D0},
     {0x0060BE14,0x005422D0},
+};
+
+// Retail 1.0 English executable. Same code as Steam, relocated: the car/heli/plane code sits 0x1D0 higher
+// and the bike code 0x3E0 higher, and the five light functions sit 0x110 higher. Every entry was checked
+// to be a real `call` to the matching function in the 1.0 gta-vc.exe (tools/VerifyExe.cpp re-checks them).
+constexpr LightCallsite lightCallsites10EN[]={
+    {0x0058C53F,0x00567700},
+    {0x0058C704,0x005427A0},
+    {0x0058C764,0x005427A0},
+    {0x0058C78E,0x005423E0},
+    {0x0058C871,0x005427A0},
+    {0x0058C8E2,0x00567700},
+    {0x0058CA17,0x005427A0},
+    {0x0058CA5F,0x005427A0},
+    {0x0058CA88,0x005423E0},
+    {0x0058D1A7,0x005427A0},
+    {0x0058D276,0x005427A0},
+    {0x0058D2DE,0x005427A0},
+    {0x0058D42B,0x005427A0},
+    {0x0058D559,0x005427A0},
+    {0x0058D689,0x005427A0},
+    {0x0058D7B7,0x005427A0},
+    {0x0058D80C,0x005427A0},
+    {0x0058D863,0x005427A0},
+    {0x0058D8A1,0x005423E0},
+    {0x0058D8DD,0x005423E0},
+    {0x0058D951,0x00571820},
+    {0x0058D9C5,0x00571820},
+    {0x0058DCA9,0x005427A0},
+    {0x0058DDCC,0x005427A0},
+    {0x0058DEC7,0x005427A0},
+    {0x0058DF70,0x005427A0},
+    {0x0058DFCB,0x005427A0},
+    {0x0058E022,0x005427A0},
+    {0x0058E05A,0x005423E0},
+    {0x0058E08C,0x005423E0},
+    {0x0058E0F6,0x00571820},
+    {0x0058E160,0x00571820},
+    {0x0058E307,0x0056DCD0},
+    {0x0058E3B1,0x0056DCD0},
+    {0x0058E49D,0x00567700},
+    {0x0058E59B,0x00567700},
+    {0x0058E611,0x00567700},
+    {0x0058E826,0x005427A0},
+    {0x0058E884,0x005427A0},
+    {0x0058E8EE,0x00571820},
+    {0x0058E95C,0x00571820},
+    {0x0058E9C6,0x005427A0},
+    {0x0058EA24,0x005427A0},
+    {0x0058EA8E,0x00571820},
+    {0x0058EAFC,0x00571820},
+    {0x0058EB43,0x005423E0},
+    {0x0058EBB3,0x005423E0},
+    {0x005AF59D,0x005427A0},
+    {0x005AF66C,0x005427A0},
+    {0x005B2820,0x005427A0},
+    {0x005B2964,0x005427A0},
+    {0x005B2A11,0x005427A0},
+    {0x005B2AB4,0x005427A0},
+    {0x0060B6C7,0x005427A0},
+    {0x0060B722,0x005427A0},
+    {0x0060B818,0x005427A0},
+    {0x0060B8EF,0x005427A0},
+    {0x0060B933,0x005427A0},
+    {0x0060B95F,0x005423E0},
+    {0x0060B9DE,0x00571820},
+    {0x0060BB4A,0x005427A0},
+    {0x0060BB8A,0x005427A0},
+    {0x0060BBAC,0x005423E0},
+    {0x0060BC0A,0x00571820},
+    {0x0060BD4A,0x0056DCD0},
+    {0x0060BDCB,0x0056DCD0},
+    {0x0060BE6E,0x00567700},
+    {0x0060BF7D,0x00567700},
+    {0x0060C134,0x005427A0},
+    {0x0060C192,0x00571820},
+    {0x0060C1C2,0x005423E0},
+    {0x0060C1F4,0x005423E0},
 };

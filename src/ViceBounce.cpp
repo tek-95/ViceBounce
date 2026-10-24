@@ -12,12 +12,16 @@
 #include "BounceMath.h"
 #include <windows.h>
 #include <array>
+#include <type_traits>
 #include <fstream>
 #include <string>
 #include <cstring>
 #include <cstdio>
 #include <vector>
 #include "LightCallsites.h"
+#include "GameLayout.h"
+#include "GameLayoutCheck.h"
+#include "Diagnostics.h"
 #include "MusicPlayback.h"
 #include "BeatMap.h"
 #include "MusicImporter.h"
@@ -45,24 +49,20 @@ GetLtmFn getLtm=nullptr;
 using RenderFn=void(__thiscall*)(CVehicle*);
 std::array<RenderFn,6> originalRenders{},originalPreRenders{};
 struct TransportHook { int runtimeType;uintptr_t vtable,preRender,render; };
-constexpr TransportHook transportHooks[]={
-    {VEHICLE_AUTOMOBILE,0x699D90,0x589900,0x5895C0},
-    {VEHICLE_BOAT,0x69A0B4,0x5A53A0,0x5A4C10},
-    {VEHICLE_HELI,0x69B21C,0x5AF4C0,0x5AEFD0},
-    {VEHICLE_PLANE,0x69B3F8,0x5B23C0,0x5B23A0},
-    {VEHICLE_BIKE,0x6D6B04,0x60A9B0,0x60A970}
-};
+// Addresses of the running executable. Set by CheckGame() once the whole table has been verified
+// against the game's own bytes; nothing below runs before that.
+const GameLayout* layout=nullptr;
+std::array<TransportHook,5> transportHooks{};
 using CutsceneRenderFn=void(__thiscall*)(CCutsceneObject*);
 CutsceneRenderFn originalCutsceneRender=nullptr;
 using CutsceneDeleteFn=void*(__thiscall*)(CCutsceneObject*,unsigned);
 CutsceneDeleteFn originalCutsceneDelete=nullptr;
 using CutsceneDeleteRwFn=void(__thiscall*)(CCutsceneObject*);
 CutsceneDeleteRwFn originalCutsceneDeleteRw=nullptr;
-constexpr uintptr_t cutsceneVtable=0x690594,cutsceneRender=0x4DFFF0;
 CVehicle* lightingVehicle=nullptr;
 CVehicleModelInfo* ModelInfo(CVehicle* vehicle) {
     if(!vehicle||vehicle->m_nModelIndex<0||vehicle->m_nModelIndex>=6500) return nullptr;
-    auto** models=reinterpret_cast<CVehicleModelInfo**>(plugin::GetGlobalAddress(0x92C4D0));
+    auto** models=reinterpret_cast<CVehicleModelInfo**>(plugin::GetGlobalAddress(layout->modelInfoPtrs));
     auto* model=models[vehicle->m_nModelIndex];
     // Airtrain LOD is a SIMPLE model: never read the vehicle-only tail there.
     return model&&model->m_nType==MODEL_INFO_VEHICLE?model:nullptr;
@@ -73,12 +73,12 @@ int TransportKind(CVehicle* vehicle) {
 }
 
 bool ReplayPlaying() {
-    // Steam CReplay::Mode; the old SDK reference points to the 1.0 global.
-    return *reinterpret_cast<const unsigned char*>(plugin::GetGlobalAddress(0xA0FAF6))==1;
+    // CReplay::Mode, per executable (the SDK's own CReplay::Mode only matches 1.0).
+    return *reinterpret_cast<const unsigned char*>(plugin::GetGlobalAddress(layout->replayMode))==1;
 }
 bool CutscenePlaying() {
-    // Steam StartCutscene writes this byte at 0x40650D.
-    return *reinterpret_cast<const unsigned char*>(plugin::GetGlobalAddress(0xA0FABA))!=0;
+    // CCutsceneMgr::ms_running; StartCutscene writes this byte at 0x40650D in both executables.
+    return *reinterpret_cast<const unsigned char*>(plugin::GetGlobalAddress(layout->cutsceneRunning))!=0;
 }
 bool Paused() { return VisualPaused(CTimer::m_UserPause,CTimer::m_CodePause,ReplayPlaying(),CutscenePlaying()); }
 bool EffectActive(CVehicle* vehicle) { return vehicle&&VehicleEnabled(cfg,TransportKind(vehicle))&&cfg.amplitude>0&&!Paused(); }
@@ -146,9 +146,17 @@ bool Focused() {
     GetWindowThreadProcessId(GetForegroundWindow(),&process);
     return process==GetCurrentProcessId();
 }
+#ifdef VICEBOUNCE_DIAGNOSTICS
+void DiagHeartbeat();
+#endif
 void Tick() {
     // Runs at the 3D/2D boundary, after deferred transparent vehicle atomics.
+    DIAG_STAGE("Tick:restore");
     RestoreFrames();
+#ifdef VICEBOUNCE_DIAGNOSTICS
+    DiagHeartbeat();
+#endif
+    DIAG_STAGE("Tick");
     static ULONGLONG previous=GetTickCount64();
     static std::array<bool,10> wasDown{};
     constexpr int keys[]={VK_F6,VK_F7,VK_PRIOR,VK_NEXT,VK_HOME,VK_END,VK_F8,VK_F9,VK_F10,VK_F11};
@@ -222,6 +230,36 @@ struct SavedBones { RwMatrix* matrices; std::vector<RwMatrix> originals; };
 std::vector<SavedBones> savedBones;
 struct VehicleGroundOffset { CVehicle* vehicle; float z; };
 std::vector<VehicleGroundOffset> groundOffsets;
+#ifdef VICEBOUNCE_DIAGNOSTICS
+void DiagHeartbeat() {
+    static bool first=true;
+    if(first) {first=false;diag::ListModules();diag::StartWatchdog();}
+    ++diag::frames;
+    static bool wasCutscene=false,known=false;
+    const bool cutscene=CutscenePlaying();
+    if(!known||cutscene!=wasCutscene) {
+        Log(std::string("diag: cutscene flag ")+(cutscene?"set":"clear")+" at frame "+std::to_string(diag::frames));
+        wasCutscene=cutscene;known=true;
+    }
+    static ULONGLONG nextBeat=0;
+    static int beats=0;
+    const auto now=GetTickCount64();
+    if(now>=nextBeat&&beats<200) {
+        nextBeat=now+2000;++beats;
+        Log("diag: heartbeat frame="+std::to_string(diag::frames)+" cutscene="+std::to_string(int(cutscene))+
+            " codePause="+std::to_string(int(CTimer::m_CodePause))+" userPause="+std::to_string(int(CTimer::m_UserPause))+
+            " replay="+std::to_string(int(ReplayPlaying()))+" savedFrames="+std::to_string(savedFrames.size())+
+            " savedBones="+std::to_string(savedBones.size())+" importerRunning="+std::to_string(int(importer.Running()))+
+            " stage="+diag::stage);
+    }
+}
+void DiagCutsceneDelete(const char* what,CCutsceneObject* actor) {
+    static int logged=0;
+    if(logged++>=120) return;
+    Log(std::string("diag: ")+what+" model="+std::to_string(actor->m_nModelIndex)+" savedFrames="+std::to_string(savedFrames.size())+
+        " savedBones="+std::to_string(savedBones.size())+" frame="+std::to_string(diag::frames));
+}
+#endif
 
 void WheelGroundPoints(RwFrame* frame,const CMatrix& basis,Scale scale,GroundAnchor& anchor,int depth=0) {
     if(!frame||depth>=16) return;
@@ -233,7 +271,8 @@ void WheelGroundPoints(RwFrame* frame,const CMatrix& basis,Scale scale,GroundAnc
         if(object->object.type!=rpATOMIC||!(object->object.flags&rpATOMICRENDER)) continue;
         auto* atomic=reinterpret_cast<RpAtomic*>(object);
         if(!atomic->geometry) continue;
-        // Steam RW geometry omits the SDK header's obsolete surface-properties field.
+        // The game's RW geometry omits the SDK header's obsolete surface-properties field (Steam and 1.0 alike:
+        // both executables read the vertex count at +0x14 and the morph target at +0x5C, see GameLayout.h).
         const auto* geometry=reinterpret_cast<const unsigned char*>(atomic->geometry);
         const int count=*reinterpret_cast<const int*>(geometry+0x14);
         const int targets=*reinterpret_cast<const int*>(geometry+0x18);
@@ -287,7 +326,7 @@ float GroundOffset(CVehicle* vehicle) {
     if(anchor.Valid()&&!logged){Log(wheelGeometry?"wheel mesh ground anchor active; tyre lower extent preserved":"ground anchor active using collision bounds fallback");logged=true;}
     return offset;
 }
-// This executable's HAnim layout differs from the legacy SDK header.
+// The game's HAnim layout (Steam and 1.0 alike) differs from the legacy SDK header.
 // Verified by GetMatrixArray (hierarchy+8) and IDGetIndex (numNodes+4).
 struct SteamHierarchy { int flags,numNodes; RwMatrix* matrices; };
 using GetHierarchyFn=SteamHierarchy*(__cdecl*)(RpClump*);
@@ -437,10 +476,10 @@ ActorTransform OwnCutsceneTransform(CCutsceneObject* actor) {
 }
 CCutsceneObject* CutsceneAttachmentOwner(CCutsceneObject* actor) {
     if(!actor->m_pAttachTo) return nullptr;
-    // Steam array/count verified in StartCutscene, not the SDK's 1.0 globals.
-    const int count=*reinterpret_cast<const int*>(plugin::GetGlobalAddress(0xA0EC7C));
+    // Array/count verified in StartCutscene for each executable (see GameLayout.h).
+    const int count=*reinterpret_cast<const int*>(plugin::GetGlobalAddress(layout->cutsceneCount));
     if(count<=0||count>50) return nullptr;
-    auto** actors=reinterpret_cast<CCutsceneObject**>(plugin::GetGlobalAddress(0x937290));
+    auto** actors=reinterpret_cast<CCutsceneObject**>(plugin::GetGlobalAddress(layout->cutsceneActors));
     for(int i=0;i<count;++i) {
         auto* owner=actors[i];
         if(!owner||owner==actor) continue;
@@ -495,12 +534,13 @@ CVehicle* PedBounceVehicle(CPed* ped) {
     return ped->m_pVehicle?ped->m_pVehicle:ped->m_pObjectiveVehicle;
 }
 void BeforePedRender(CPed* ped) {
+    DIAG_STAGE("BeforePedRender");
     if(!ped||cfg.amplitude<=0||Paused()) return;
     auto* vehicle=PedBounceVehicle(ped);
     const int effect=PedEffect(cfg.allPeople,EffectActive(vehicle),ped->m_bInVehicle);
     if(!effect) return;
     // CPed::Render copies the complete hand matrix to the weapon frame after
-    // this hook (Steam 0x4FE11D..0x4FE17F). Do not scale the weapon a second time.
+    // this hook (Steam 0x4FE11D..0x4FE17F, 1.0 0x4FE25D..0x4FE2BF). Do not scale the weapon a second time.
     if(effect==2) DeformActor(ped,vehicle->GetMatrix(),GroundOffset(vehicle));
     else DeformStandingActor(ped);
     static bool logged=false;
@@ -509,14 +549,18 @@ void BeforePedRender(CPed* ped) {
     if(!ped->m_bInVehicle&&EffectActive(vehicle)&&!doorLogged){Log("door contact/entry actor rendered before in-vehicle flag");doorLogged=true;}
 }
 void __fastcall RenderCutscene(CCutsceneObject* actor,void*) {
+    DIAG_STAGE("RenderCutscene:deform");
     if((cfg.enabled||cfg.allPeople)&&cfg.amplitude>0&&!Paused()) {
         DeformCutsceneActor(actor);
         static bool logged=false;
         if(!logged){Log("cutscene actors and attached props rendered with bounce");logged=true;}
     }
+    DIAG_STAGE("RenderCutscene:game");
     originalCutsceneRender(actor);
+    DIAG_STAGE("RenderCutscene:done");
 }
 void RestoreFrames() {
+    DIAG_STAGE("RestoreFrames");
     for(const auto& saved:savedBones)
         std::memcpy(saved.matrices,saved.originals.data(),saved.originals.size()*sizeof(RwMatrix));
     savedBones.clear();
@@ -533,24 +577,42 @@ void RestoreFrames() {
     cutsceneTransforms.clear();
 }
 void* __fastcall DeleteCutscene(CCutsceneObject* actor,void*,unsigned flags) {
+    DIAG_STAGE("DeleteCutscene:restore");
+#ifdef VICEBOUNCE_DIAGNOSTICS
+    DiagCutsceneDelete("cutscene object destructor",actor);
+#endif
     RestoreFrames(); // Drop all borrowed RW/bone pointers while owners are still alive.
-    return originalCutsceneDelete(actor,flags);
+    DIAG_STAGE("DeleteCutscene:game");
+    auto* result=originalCutsceneDelete(actor,flags);
+    DIAG_STAGE("DeleteCutscene:done");
+    return result;
 }
 void __fastcall DeleteCutsceneRw(CCutsceneObject* actor,void*) {
+    DIAG_STAGE("DeleteCutsceneRw:restore");
+#ifdef VICEBOUNCE_DIAGNOSTICS
+    DiagCutsceneDelete("cutscene DeleteRwObject",actor);
+#endif
     RestoreFrames();
+    DIAG_STAGE("DeleteCutsceneRw:game");
     originalCutsceneDeleteRw(actor);
+    DIAG_STAGE("DeleteCutsceneRw:done");
 }
 void __fastcall RenderTransport(CVehicle* vehicle,void*) {
+    DIAG_STAGE("RenderTransport:deform");
     BeforeRender(vehicle);
     auto* previous=lightingVehicle;
     lightingVehicle=EffectActive(vehicle)?vehicle:nullptr;
+    DIAG_STAGE("RenderTransport:game");
     originalRenders[vehicle->m_nVehicleClass](vehicle);
+    DIAG_STAGE("RenderTransport:done");
     lightingVehicle=previous;
 }
 void __fastcall PreRenderTransport(CVehicle* vehicle,void*) {
+    DIAG_STAGE("PreRenderTransport");
     auto* previous=lightingVehicle;
     lightingVehicle=EffectActive(vehicle)?vehicle:nullptr;
     originalPreRenders[vehicle->m_nVehicleClass](vehicle);
+    DIAG_STAGE("PreRenderTransport:done");
     lightingVehicle=previous;
 }
 template<class Function> Function GameFunction(uintptr_t address) {
@@ -571,108 +633,91 @@ void __cdecl RegisterCorona(unsigned id,unsigned char r,unsigned char g,unsigned
     const CVector& position,float radius,float farClip,unsigned char type,unsigned char flare,unsigned char reflection,
     unsigned char check,unsigned char streak,float angle,bool longDistance,float nearClip) {
     using Fn=decltype(&RegisterCorona);
+    DIAG_STAGE("light:RegisterCorona");
     const auto transformed=LightPosition(position);
-    GameFunction<Fn>(0x542690)(id,r,g,b,alpha,transformed,LightRadius(radius),farClip,type,flare,reflection,check,streak,angle,longDistance,nearClip);
+    GameFunction<Fn>(layout->registerCorona)(id,r,g,b,alpha,transformed,LightRadius(radius),farClip,type,flare,reflection,check,streak,angle,longDistance,nearClip);
     static bool logged=false;if(lightingVehicle&&!logged){Log("first automobile light registered; corona positions and size deformed");logged=true;}
 }
 void __cdecl UpdateCorona(unsigned id,const CVector& position,float farClip,float angle) {
+    DIAG_STAGE("light:UpdateCorona");
     const auto transformed=LightPosition(position);
-    GameFunction<decltype(&UpdateCorona)>(0x5422D0)(id,transformed,farClip,angle);
+    GameFunction<decltype(&UpdateCorona)>(layout->updateCorona)(id,transformed,farClip,angle);
 }
-void __cdecl AddPointLight(unsigned char type,CVector position,CVector direction,float range,float r,float g,float b,unsigned char fog,bool shadows) {
-    GameFunction<decltype(&AddPointLight)>(0x5675F0)(type,LightPosition(position),LightDirection(direction),LightRadius(range),r,g,b,fog,shadows);
+// The game passes CVector arguments by value, as three floats directly on the stack. Compilers that follow the
+// Itanium C++ ABI (MinGW, clang) pass a class with a user-provided copy constructor, like CVector, through a hidden
+// pointer instead, which does not match the game's calling convention. These functions therefore take and pass
+// plain structs, which every compiler passes as the game expects.
+struct GameVector { float x,y,z; };
+CVector ToCVector(GameVector v) { return CVector(v.x,v.y,v.z); }
+GameVector ToGameVector(const CVector& v) { return {v.x,v.y,v.z}; }
+void __cdecl AddPointLight(unsigned char type,GameVector position,GameVector direction,float range,float r,float g,float b,unsigned char fog,bool shadows) {
+    DIAG_STAGE("light:AddPointLight");
+    GameFunction<decltype(&AddPointLight)>(layout->addPointLight)(type,ToGameVector(LightPosition(ToCVector(position))),
+        ToGameVector(LightDirection(ToCVector(direction))),LightRadius(range),r,g,b,fog,shadows);
 }
-void __cdecl RegisterBrightLight(CVector position,CVector right,CVector up,CVector at,unsigned char r,unsigned char g,unsigned char b,unsigned char alpha) {
-    GameFunction<decltype(&RegisterBrightLight)>(0x571710)(LightPosition(position),LightDirection(right),LightDirection(up),LightDirection(at),r,g,b,alpha);
+void __cdecl RegisterBrightLight(GameVector position,GameVector right,GameVector up,GameVector at,unsigned char r,unsigned char g,unsigned char b,unsigned char alpha) {
+    DIAG_STAGE("light:RegisterBrightLight");
+    GameFunction<decltype(&RegisterBrightLight)>(layout->registerBrightLight)(ToGameVector(LightPosition(ToCVector(position))),
+        ToGameVector(LightDirection(ToCVector(right))),ToGameVector(LightDirection(ToCVector(up))),ToGameVector(LightDirection(ToCVector(at))),r,g,b,alpha);
 }
 void __cdecl StoreLightShadow(CVehicle* vehicle,int id,RwTexture* texture,CVector* position,float frontX,float frontY,float sideX,float sideY,
     unsigned char r,unsigned char g,unsigned char b,float maxAngle) {
+    DIAG_STAGE("light:StoreLightShadow");
     auto transformed=LightPosition(*position);
     transformed.z=position->z; // The footprint remains projected onto the road.
     const auto front=LightDirection(CVector(frontX,frontY,0));
     const auto side=LightDirection(CVector(sideX,sideY,0));
-    GameFunction<decltype(&StoreLightShadow)>(0x56DBC0)(vehicle,id,texture,&transformed,front.x,front.y,side.x,side.y,r,g,b,maxAngle);
+    GameFunction<decltype(&StoreLightShadow)>(layout->storeLightShadow)(vehicle,id,texture,&transformed,front.x,front.y,side.x,side.y,r,g,b,maxAngle);
     static bool logged=false;if(lightingVehicle&&!logged){Log("first automobile projected light registered; road footprint deformed");logged=true;}
 }
+// Compile-time guard for the ABI problem described above: no argument of a function the game calls may be a class
+// that is not trivially copyable (references are fine, they are plain pointers in every ABI).
+template<class Function> struct GameCallable;
+template<class Result,class... Arguments> struct GameCallable<Result(__cdecl*)(Arguments...)> {
+    static constexpr bool value=((std::is_reference_v<Arguments>||std::is_trivially_copyable_v<Arguments>)&&...);
+};
+static_assert(GameCallable<decltype(&RegisterCorona)>::value&&GameCallable<decltype(&UpdateCorona)>::value&&
+    GameCallable<decltype(&AddPointLight)>::value&&GameCallable<decltype(&RegisterBrightLight)>::value&&
+    GameCallable<decltype(&StoreLightShadow)>::value,"a function called by the game takes a C++ class by value; use a plain struct");
 uintptr_t LightReplacement(uintptr_t target) {
-    switch(target) {
-        case 0x542690:return reinterpret_cast<uintptr_t>(&RegisterCorona);
-        case 0x5422D0:return reinterpret_cast<uintptr_t>(&UpdateCorona);
-        case 0x5675F0:return reinterpret_cast<uintptr_t>(&AddPointLight);
-        case 0x571710:return reinterpret_cast<uintptr_t>(&RegisterBrightLight);
-        case 0x56DBC0:return reinterpret_cast<uintptr_t>(&StoreLightShadow);
-    }
+    if(target==layout->registerCorona) return reinterpret_cast<uintptr_t>(&RegisterCorona);
+    if(target==layout->updateCorona) return reinterpret_cast<uintptr_t>(&UpdateCorona);
+    if(target==layout->addPointLight) return reinterpret_cast<uintptr_t>(&AddPointLight);
+    if(target==layout->registerBrightLight) return reinterpret_cast<uintptr_t>(&RegisterBrightLight);
+    if(target==layout->storeLightShadow) return reinterpret_cast<uintptr_t>(&StoreLightShadow);
     return 0;
 }
-bool CallMatches(uintptr_t address,uintptr_t target) {
-    auto* code=reinterpret_cast<const unsigned char*>(plugin::GetGlobalAddress(address));
-    int32_t rel=0;std::memcpy(&rel,code+1,sizeof(rel));
-    return code[0]==0xE8&&uintptr_t(code+5)+rel==plugin::GetGlobalAddress(target);
-}
-
-bool BytesMatch(uintptr_t address,const unsigned char* expected,size_t size) {
-    return std::memcmp(reinterpret_cast<const void*>(plugin::GetGlobalAddress(address)),expected,size)==0;
-}
-bool CheckSteam() {
-    if(plugin::GetGameVersion()!=GAME_STEAM) { Log("unsupported executable: this build targets GAME_STEAM only");return false; }
-    for(const auto& transport:transportHooks) {
-        auto* slots=reinterpret_cast<const uintptr_t*>(plugin::GetGlobalAddress(transport.vtable));
-        if(slots[12]!=plugin::GetGlobalAddress(transport.preRender)||slots[13]!=plugin::GetGlobalAddress(transport.render)) {
-            Log("transport vtable differs from verified Steam executable; hooks disabled");return false;
-        }
+// The live process as the Memory source for VerifyLayout (GameLayoutCheck.h).
+struct ProcessMemory {
+    const unsigned char* At(uintptr_t address) const { return reinterpret_cast<const unsigned char*>(plugin::GetGlobalAddress(address)); }
+    uintptr_t Abs(uintptr_t address) const { return plugin::GetGlobalAddress(address); }
+};
+// Picks the table for the running executable and verifies every address in it against the game's
+// own bytes (GameLayoutCheck.h). Only a fully confirmed table is ever used to patch the game.
+bool CheckGame() {
+    const unsigned gameVersion=plugin::GetGameVersion();
+    const GameLayout* candidate=nullptr;
+    if(gameVersion==GAME_10EN) candidate=&layout10EN;
+    else if(gameVersion==GAME_STEAM) candidate=&layoutSteam;
+    if(!candidate) {
+        Log(std::string("unsupported executable (")+plugin::GetGameVersionName()+"): this build supports 1.0 EN and Steam");
+        return false;
     }
-    auto* cutsceneSlots=reinterpret_cast<const uintptr_t*>(plugin::GetGlobalAddress(cutsceneVtable));
-    constexpr unsigned char cutsceneRunningSignature[]={0xC6,0x05,0xBA,0xFA,0xA0,0,1};
-    constexpr unsigned char pedAssociationSignature[]={0x8B,0x8B,0xF8,0x01,0,0};
-    constexpr unsigned char cutsceneCountSignature[]={0x8B,0x1D,0x7C,0xEC,0xA0,0};
-    constexpr unsigned char cutsceneArraySignature[]={0x8B,0x0C,0x9D,0x90,0x72,0x93,0};
-    constexpr unsigned char attachmentSignature[]={0x89,0xAB,0x9C,0x01,0,0};
-    constexpr unsigned char weaponCopySignature[]={0xD9,0x06,0x8D,0x50,0x10,0x50,0xD9,0x1A};
-    if(cutsceneSlots[2]!=plugin::GetGlobalAddress(0x4E0400)||
-       cutsceneSlots[6]!=plugin::GetGlobalAddress(0x4895A0)||
-       cutsceneSlots[13]!=plugin::GetGlobalAddress(cutsceneRender)||
-       !CallMatches(0x4A5C70,0x4A42D0)||
-       !CallMatches(0x4E0000,0x4E2630)||
-       !BytesMatch(0x40650D,cutsceneRunningSignature,sizeof(cutsceneRunningSignature))||
-       !BytesMatch(0x517104,pedAssociationSignature,sizeof(pedAssociationSignature))||
-       !BytesMatch(0x4063B8,cutsceneCountSignature,sizeof(cutsceneCountSignature))||
-       !BytesMatch(0x406402,cutsceneArraySignature,sizeof(cutsceneArraySignature))||
-       !BytesMatch(0x406640,attachmentSignature,sizeof(attachmentSignature))||
-       !BytesMatch(0x4FE11D,weaponCopySignature,sizeof(weaponCopySignature))) {
-        Log("cutscene/door interaction signature mismatch; hooks disabled");return false;
+    std::string failure;
+    if(!VerifyLayout(*candidate,ProcessMemory{},failure)) {
+        Log("executable verification failed: "+failure+"; hooks disabled");return false;
     }
-    if(!CallMatches(0x4FE0D6,0x4886B0)) {
-        Log("PreRender/occupant render differs from verified executable; hooks disabled");return false;
-    }
-    for(const auto& site:lightCallsites) if(!CallMatches(site.address,site.target)) {
-        Log("automobile light callsite mismatch; hooks disabled");return false;
-    }
-    constexpr unsigned char hierarchySignature[]={0x83,0xEC,0x08,0xC7,0x44,0x24,0x04,0,0,0,0};
-    constexpr unsigned char boneArraySignature[]={0x8B,0x44,0x24,0x04,0x8B,0x40,0x08,0xC3};
-    if(!BytesMatch(0x57F080,hierarchySignature,sizeof(hierarchySignature))||!BytesMatch(0x645320,boneArraySignature,sizeof(boneArraySignature))) {
-        Log("Steam skeletal hierarchy mismatch; hooks disabled");return false;
-    }
-    constexpr unsigned char verticesSignature[]={0x8B,0x46,0x14};
-    constexpr unsigned char morphSignature[]={0x8B,0x46,0x5C};
-    if(!BytesMatch(0x64B9FD,verticesSignature,sizeof(verticesSignature))||!BytesMatch(0x64BA19,morphSignature,sizeof(morphSignature))) {
-        Log("Steam wheel geometry layout mismatch; hooks disabled");return false;
-    }
-    constexpr unsigned char renderSignature[]={0x53,0x56,0x89,0xCB,0x57,0x55,0x83,0xEC,0x18};
-    constexpr unsigned char drawingSignature[]={0xE8,0x75,0xA7,0x17,0};
-    constexpr unsigned char replaySignature[]={0xC6,0x05,0xF6,0xFA,0xA0,0,1};
-    if(!BytesMatch(0x5895C0,renderSignature,sizeof(renderSignature))||
-       !BytesMatch(0x4A60A6,drawingSignature,sizeof(drawingSignature))||
-       !BytesMatch(0x4D77FB,replaySignature,sizeof(replaySignature))) {
-        Log("full render/drawing/replay signature mismatch; hooks disabled");return false;
-    }
-    constexpr unsigned char updateSignature[]={0x8B,0x44,0x24,0x04,0x33,0xC9,0x8B,0x90,0xA0,0,0,0,0x8A,0x4A,0x03};
-    constexpr unsigned char ltmSignature[]={0x56,0x8B,0x74,0x24,0x08,0x8B,0x86,0xA0,0,0,0,0xF6,0x40,0x03,0x01};
-    if(!BytesMatch(0x643CB0,updateSignature,sizeof(updateSignature))||!BytesMatch(0x643D30,ltmSignature,sizeof(ltmSignature))) {
-        Log("RenderWare signature mismatch; hooks disabled");return false;
-    }
-    updateFrame=reinterpret_cast<UpdateFrameFn>(plugin::GetGlobalAddress(0x643CB0));
-    getLtm=reinterpret_cast<GetLtmFn>(plugin::GetGlobalAddress(0x643D30));
-    getHierarchy=GameFunction<GetHierarchyFn>(0x57F080);
+    layout=candidate;
+    transportHooks={{
+        {VEHICLE_AUTOMOBILE,layout->automobile.vtable,layout->automobile.preRender,layout->automobile.render},
+        {VEHICLE_BOAT,layout->boat.vtable,layout->boat.preRender,layout->boat.render},
+        {VEHICLE_HELI,layout->heli.vtable,layout->heli.preRender,layout->heli.render},
+        {VEHICLE_PLANE,layout->plane.vtable,layout->plane.preRender,layout->plane.render},
+        {VEHICLE_BIKE,layout->bike.vtable,layout->bike.preRender,layout->bike.render}
+    }};
+    updateFrame=GameFunction<UpdateFrameFn>(layout->updateFrame);
+    getLtm=GameFunction<GetLtmFn>(layout->getLtm);
+    getHierarchy=GameFunction<GetHierarchyFn>(layout->getHierarchy);
     return true;
 }
 struct ViceBounce {
@@ -681,8 +726,13 @@ struct ViceBounce {
         GetModuleFileNameA(reinterpret_cast<HMODULE>(&__ImageBase),module,MAX_PATH);
         std::string dir(module);dir=dir.substr(0,dir.find_last_of("\\/")+1);
         iniPath=dir+"ViceBounce.ini";logPath=dir+"ViceBounce.log";
+#ifdef VICEBOUNCE_DIAGNOSTICS
+        diag::Install(logPath);
+        Log(std::string("ViceBounce 0.11.1 startup (diagnostic build); ")+plugin::GetGameVersionName());
+#else
         Log(std::string("ViceBounce 0.11.1 startup; ")+plugin::GetGameVersionName());
-        if(!CheckSteam()) return;
+#endif
+        if(!CheckGame()) return;
         LoadConfig();
         savedFrames.reserve(256);
         savedBones.reserve(64);
@@ -693,8 +743,8 @@ struct ViceBounce {
         std::vector<Writable> writable;
         for(const auto& transport:transportHooks)
             writable.push_back({reinterpret_cast<void*>(plugin::GetGlobalAddress(transport.vtable+12*sizeof(RenderFn))),2*sizeof(RenderFn),0});
-        writable.push_back({reinterpret_cast<void*>(plugin::GetGlobalAddress(cutsceneVtable+2*sizeof(uintptr_t))),12*sizeof(uintptr_t),0});
-        for(const auto& site:lightCallsites) writable.push_back({reinterpret_cast<void*>(plugin::GetGlobalAddress(site.address)),5,0});
+        writable.push_back({reinterpret_cast<void*>(plugin::GetGlobalAddress(layout->cutsceneVtable+2*sizeof(uintptr_t))),12*sizeof(uintptr_t),0});
+        for(const auto& site:layout->lightCallsites) writable.push_back({reinterpret_cast<void*>(plugin::GetGlobalAddress(site.address)),5,0});
         size_t prepared=0;
         for(auto& patch:writable) {
             if(!VirtualProtect(patch.address,patch.size,PAGE_EXECUTE_READWRITE,&patch.protection)) break;
@@ -711,14 +761,14 @@ struct ViceBounce {
             slots[13]=reinterpret_cast<RenderFn>(&RenderTransport);
             slots[12]=reinterpret_cast<RenderFn>(&PreRenderTransport);
         }
-        auto* deleteSlot=reinterpret_cast<CutsceneDeleteFn*>(plugin::GetGlobalAddress(cutsceneVtable+2*sizeof(uintptr_t)));
+        auto* deleteSlot=reinterpret_cast<CutsceneDeleteFn*>(plugin::GetGlobalAddress(layout->cutsceneVtable+2*sizeof(uintptr_t)));
         originalCutsceneDelete=*deleteSlot;*deleteSlot=reinterpret_cast<CutsceneDeleteFn>(&DeleteCutscene);
-        auto* deleteRwSlot=reinterpret_cast<CutsceneDeleteRwFn*>(plugin::GetGlobalAddress(cutsceneVtable+6*sizeof(uintptr_t)));
+        auto* deleteRwSlot=reinterpret_cast<CutsceneDeleteRwFn*>(plugin::GetGlobalAddress(layout->cutsceneVtable+6*sizeof(uintptr_t)));
         originalCutsceneDeleteRw=*deleteRwSlot;*deleteRwSlot=reinterpret_cast<CutsceneDeleteRwFn>(&DeleteCutsceneRw);
-        auto* cutsceneSlot=reinterpret_cast<CutsceneRenderFn*>(plugin::GetGlobalAddress(cutsceneVtable+13*sizeof(CutsceneRenderFn)));
+        auto* cutsceneSlot=reinterpret_cast<CutsceneRenderFn*>(plugin::GetGlobalAddress(layout->cutsceneVtable+13*sizeof(CutsceneRenderFn)));
         originalCutsceneRender=*cutsceneSlot;
         *cutsceneSlot=reinterpret_cast<CutsceneRenderFn>(&RenderCutscene);
-        for(const auto& site:lightCallsites) {
+        for(const auto& site:layout->lightCallsites) {
             auto* code=reinterpret_cast<unsigned char*>(plugin::GetGlobalAddress(site.address));
             const int32_t rel=static_cast<int32_t>(LightReplacement(site.target)-uintptr_t(code+5));
             std::memcpy(code+1,&rel,sizeof(rel));
@@ -728,7 +778,7 @@ struct ViceBounce {
         plugin::Events::pedRenderEvent.before+=BeforePedRender;
         plugin::Events::drawingEvent.before+=Tick;
         plugin::Events::gameProcessEvent.before+=RestoreFrames;
-        Log("verified Steam full Render/PreRender for cars, bikes, boats, helicopters and planes; occupants, "+std::to_string(std::size(lightCallsites))+" light callsites, replay, cutscenes, atomic aircraft, standing actor anchors and cutscene destruction guards enabled");
+        Log(std::string("verified ")+layout->name+" full Render/PreRender for cars, bikes, boats, helicopters and planes; occupants, "+std::to_string(layout->lightCallsites.size())+" light callsites, replay, cutscenes, atomic aircraft, standing actor anchors and cutscene destruction guards enabled");
     }
 } instance;
 }
