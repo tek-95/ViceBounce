@@ -1,3 +1,4 @@
+newoption { trigger = "diagnostics", description = "Enable crash stack and frame watchdog logs" }
 local sdk = os.getenv("PLUGIN_SDK_DIR")
 assert(sdk, "PLUGIN_SDK_DIR must be set")
 workspace "ViceBounce"
@@ -20,6 +21,10 @@ project "ViceBounce"
     objdir "build/obj"
     files { "src/**.cpp" }
     defines { "GTAVC", "PLUGIN_SGV_STEAM", "PLUGIN_SGV_10EN", "RW", "_CRT_SECURE_NO_WARNINGS", "_DX9_SDK_INSTALLED" }
+    if _OPTIONS["diagnostics"] then
+        defines { "VICEBOUNCE_DIAGNOSTICS" }
+        symbols "On"
+    end
     includedirs { sdk .. "/plugin_vc", sdk .. "/plugin_vc/game_vc", sdk .. "/plugin_vc/game_vc/enums", sdk .. "/plugin_vc/game_vc/rw", sdk .. "/shared", sdk .. "/shared/game", sdk .. "/safetyhook", sdk .. "/shared/dxsdk" }
     libdirs { sdk .. "/output/lib", sdk .. "/shared/dxsdk" }
     links { "Plugin_VC", "d3d9", "d3dx9", "user32", "winmm" }

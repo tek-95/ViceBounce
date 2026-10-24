@@ -28,6 +28,7 @@
 #include "LightCallsites.h"
 #include "GameLayoutCheck.h"
 #include "SceneryLayout.h"
+#include "Diagnostics.h"
 #include "MusicPlayback.h"
 #include "BeatMap.h"
 #include "MusicImporter.h"
@@ -55,8 +56,8 @@ thread_local const char* diagnosticStage="outside scenery";
 thread_local int diagnosticModel=-1;
 struct DiagnosticScope {
     const char* previousStage=diagnosticStage;int previousModel=diagnosticModel;
-    DiagnosticScope(const char* stage,int model=-1){diagnosticStage=stage;diagnosticModel=model;}
-    ~DiagnosticScope(){diagnosticStage=previousStage;diagnosticModel=previousModel;}
+    DiagnosticScope(const char* stage,int model=-1){diagnosticStage=stage;diagnosticModel=model;DIAG_STAGE(stage);}
+    ~DiagnosticScope(){diagnosticStage=previousStage;diagnosticModel=previousModel;DIAG_STAGE(previousStage);}
 };
 LONG CALLBACK RecordException(EXCEPTION_POINTERS* info) {
     const auto code=info->ExceptionRecord->ExceptionCode;
@@ -234,6 +235,11 @@ plugin::ThiscallEvent<plugin::AddressListMulti<
     0x4A612E, GAME_10EN, plugin::H_CALL>,
     plugin::PRIORITY_BEFORE, plugin::ArgPickNone, void(CMenuManager*)> steamMenuDrawingEvent;
 void Tick() {
+#ifdef VICEBOUNCE_DIAGNOSTICS
+    static bool firstDiagnosticFrame=true;
+    if(firstDiagnosticFrame){firstDiagnosticFrame=false;diag::ListModules();diag::StartWatchdog();}
+    ++diag::frames;
+#endif
     // Runs at the 3D/2D boundary, after deferred transparent vehicle atomics.
     RestoreFrames();
     static ULONGLONG previous=GetTickCount64();
@@ -856,6 +862,7 @@ CVehicle* PedBounceVehicle(CPed* ped) {
     return ped->m_pVehicle?ped->m_pVehicle:ped->m_pObjectiveVehicle;
 }
 void BeforePedRender(CPed* ped) {
+    DiagnosticScope diagnostic("ped render",ped?ped->m_nModelIndex:-1);
     if(!ped||cfg.amplitude<=0||Paused()) return;
     auto* vehicle=PedBounceVehicle(ped);
     const int effect=PedEffect(cfg.allPeople,EffectActive(vehicle),ped->m_bInVehicle);
@@ -870,6 +877,7 @@ void BeforePedRender(CPed* ped) {
     if(!ped->m_bInVehicle&&EffectActive(vehicle)&&!doorLogged){Log("door contact/entry actor rendered before in-vehicle flag");doorLogged=true;}
 }
 void __fastcall RenderCutscene(CCutsceneObject* actor,void*) {
+    DiagnosticScope diagnostic("cutscene render",actor?actor->m_nModelIndex:-1);
     if((cfg.enabled||cfg.allPeople)&&cfg.amplitude>0&&!Paused()) {
         DeformCutsceneActor(actor);
         static bool logged=false;
@@ -903,6 +911,7 @@ void __fastcall DeleteCutsceneRw(CCutsceneObject* actor,void*) {
     originalCutsceneDeleteRw(actor);
 }
 void __fastcall RenderTransport(CVehicle* vehicle,void*) {
+    DiagnosticScope diagnostic("transport render",vehicle?vehicle->m_nModelIndex:-1);
     BeforeRender(vehicle);
     auto* previous=lightingVehicle;
     lightingVehicle=EffectActive(vehicle)?vehicle:nullptr;
@@ -910,6 +919,7 @@ void __fastcall RenderTransport(CVehicle* vehicle,void*) {
     lightingVehicle=previous;
 }
 void __fastcall PreRenderTransport(CVehicle* vehicle,void*) {
+    DiagnosticScope diagnostic("transport pre-render",vehicle?vehicle->m_nModelIndex:-1);
     auto* previous=lightingVehicle;
     lightingVehicle=EffectActive(vehicle)?vehicle:nullptr;
     originalPreRenders[vehicle->m_nVehicleClass](vehicle);
@@ -1117,6 +1127,9 @@ struct ViceBounce {
         GetModuleFileNameA(reinterpret_cast<HMODULE>(&__ImageBase),module,MAX_PATH);
         std::string dir(module);dir=dir.substr(0,dir.find_last_of("\\/")+1);
         iniPath=dir+"ViceBounce.ini";logPath=dir+"ViceBounce.log";
+#ifdef VICEBOUNCE_DIAGNOSTICS
+        diag::Install(logPath);
+#endif
         exceptionLog=CreateFileA((dir+"ViceBounce-crash.log").c_str(),FILE_APPEND_DATA,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
         AddVectoredExceptionHandler(0,RecordException);
         Log(std::string("ViceBounce 0.19-dev startup; ")+plugin::GetGameVersionName());
