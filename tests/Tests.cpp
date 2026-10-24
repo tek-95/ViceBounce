@@ -1,14 +1,13 @@
 #include "../src/BounceMath.h"
 #include "../src/BeatMap.h"
-#include "../src/GameLayoutCheck.h"
+#include "../src/Vegetation.h"
+#include "../src/Buildings.h"
+#include "../src/SceneryGroups.h"
 #include <sstream>
 #include <array>
 #include <cstring>
 #include <iostream>
 #include <limits>
-#include <set>
-#include <string>
-#include <vector>
 #include <stdexcept>
 using namespace vicebounce;
 void Require(bool ok,const char* label){if(!ok)throw std::runtime_error(label);}
@@ -17,61 +16,194 @@ struct V3{float x,y,z;};
 struct Matrix{V3 right;unsigned flags;V3 up;unsigned p1;V3 at;unsigned p2;V3 pos;unsigned p3;};
 float Dot(V3 a,V3 b){return a.x*b.x+a.y*b.y+a.z*b.z;}
 float Length(V3 a){return std::sqrt(Dot(a,a));}
-
-// A fake executable image: lets the layout verifier run without a game, using exactly the code the plugin runs.
-struct FakeImage {
-    static constexpr uintptr_t base=0x400000;
-    std::vector<unsigned char> bytes=std::vector<unsigned char>(0x800000,0);
-    const unsigned char* At(uintptr_t address) const {Require(address>=base&&address-base+16<=bytes.size(),"layout address outside the image");return &bytes[address-base];}
-    unsigned char* Edit(uintptr_t address){return const_cast<unsigned char*>(At(address));}
-    uintptr_t Abs(uintptr_t address) const {return address;}
-    void Word(uintptr_t address,uint32_t value){std::memcpy(Edit(address),&value,4);}
-    void Call(uintptr_t address,uintptr_t target){*Edit(address)=0xE8;Word(address+1,uint32_t(target-(address+5)));}
-};
-FakeImage MakeImage(const GameLayout& layout){
-    FakeImage image;
-    for(const VehicleHook* hook:{&layout.automobile,&layout.boat,&layout.heli,&layout.plane,&layout.bike}){image.Word(hook->vtable+12*4,uint32_t(hook->preRender));image.Word(hook->vtable+13*4,uint32_t(hook->render));}
-    image.Word(layout.cutsceneVtable+2*4,uint32_t(layout.cutsceneDestructor));
-    image.Word(layout.cutsceneVtable+6*4,uint32_t(layout.cutsceneDeleteRw));
-    image.Word(layout.cutsceneVtable+13*4,uint32_t(layout.cutsceneRender));
-    for(const auto& signature:layout.signatures) std::memcpy(image.Edit(signature.address),signature.bytes,signature.size);
-    for(const auto& call:layout.calls) image.Call(call.address,call.target);
-    for(const auto& site:layout.lightCallsites) image.Call(site.address,site.target);
-    return image;
-}
-void CheckLayout(const GameLayout& layout){
-    const std::string name=layout.name;
-    FakeImage image=MakeImage(layout);
-    std::string failure;
-    Require(VerifyLayout(layout,image,failure),(name+" layout rejects an image built from its own tables: "+failure).c_str());
-    Require(layout.lightCallsites.size()==72,"every automobile light callsite must be listed");
-    std::set<uintptr_t> sites;
-    for(const auto& site:layout.lightCallsites){
-        Require(sites.insert(site.address).second,"duplicate light callsite");
-        Require(site.address>=0x401000&&site.address<0x670000,"light callsite outside the code section");
-        const uintptr_t targets[]={layout.registerCorona,layout.updateCorona,layout.addPointLight,layout.registerBrightLight,layout.storeLightShadow};
-        bool known=false;for(uintptr_t target:targets)known|=target==site.target;
-        Require(known,"light callsite targets an unknown light function");
-    }
-    // Any single wrong byte in any checked place must be noticed instead of patched blindly.
-    std::vector<uintptr_t> checked;
-    for(const VehicleHook* hook:{&layout.automobile,&layout.boat,&layout.heli,&layout.plane,&layout.bike}){checked.push_back(hook->vtable+12*4);checked.push_back(hook->vtable+13*4);}
-    for(int slot:{2,6,13}) checked.push_back(layout.cutsceneVtable+slot*4);
-    for(const auto& call:layout.calls) checked.push_back(call.address+1);
-    for(const auto& site:layout.lightCallsites) checked.push_back(site.address+1);
-    for(const auto& signature:layout.signatures) checked.push_back(signature.address);
-    for(uintptr_t address:checked){
-        FakeImage broken=MakeImage(layout);
-        *broken.Edit(address)^=0x40;
-        std::string why;
-        Require(!VerifyLayout(layout,broken,why)&&!why.empty(),(name+" layout accepted a corrupted image at "+detail::Hex(address)).c_str());
-    }
-    // The two executables must never accept each other's code.
-    const GameLayout& other=&layout==&layoutSteam?layout10EN:layoutSteam;
-    std::string otherFailure;
-    Require(!VerifyLayout(other,image,otherFailure),"layouts for different executables must not match one another");
-}
 int main(){try{
+    Require(!Settings{}.buildings,"building mode must be opt-in");
+    for(const char* name:{"hotel01","nb_apartments","bankfront","LODhotel01"})
+        Require(BuildingCandidate(1,false,false,name),"building model omitted");
+    for(const char* name:{"miamiland037","miamiland170","miamiland171","miamiland172","miamiland173","miamiland174","miamiland175","miamiland179","miamiland180","LODmiLand037","LODmiLand170","LODmiLand171","LODmiLand172","LODmiLand173","LODmiLand174","LODmiLand175","LODmiLand179","LODmiLand180","lhcoastsky1","lhcoastsky2","LODoastsky1","LODoastsky2"})
+        Require(!TerrainModelName(name)&&BuildingCandidate(1,false,false,name),"Little Havana house/tower mistaken for ground");
+    for(const char* name:{"lithavabit03","lithavabit04","havbit01","havbit02","LODhavabit04","LODbit02","miamiland176","miamiland177","miamiland178","LODmiLand176","LODmiLand177","LODmiLand178"})
+        Require(TerrainModelName(name)&&!BuildingCandidate(1,false,false,name)&&!VegetationModelName(name),"Little Havana garden/road joins moving scenery");
+    for(const char* name:{"road01","dock_ground","streetlamp2","bench01","trafficlight","tree_shadow","bridge01"})
+        Require(!BuildingCandidate(1,false,false,name),"building mode selected road/prop/shadow");
+    Require(!BuildingCandidate(1,true,false,"hotel01")&&!BuildingCandidate(1,false,true,"hotel01")&&!BuildingCandidate(2,false,false,"hotel01"),"buildings overlapped plants, roads or transport");
+    Settings buildingSettings;buildingSettings.enabled=false;buildingSettings.vegetation=false;
+    Require(Near(BuildingScale(.5,buildingSettings,20).horizontal,1)&&Near(BuildingScale(.5,buildingSettings,20).vertical,.94),"building scale must be independent and vertical only");
+    Require(Near(BuildingScale(.5,buildingSettings,2).vertical,.94),"short building parts must not be omitted");
+    for(const char* name:{"od_clevelander_dy","LODclevelander_nt","deco_polgrnda16","LODo_polgrnda16","od_wt","od_wtlegs","od_wtsign"}) {
+        Require(!TerrainModelName(name)&&BuildingCandidate(1,false,false,name),"body/detail mistakenly classified as ground or street furniture");
+    }
+    for(const char* name:{"dt_stadiumland_a","dt_stadiumland_b","dt_stadiumland_c","dt_stadiumland_d","LODstadiumland_a","LODstadiumland_b","LODstadiumland_c","LODstadiumland_d","dt_stadium_start","dt_stadium_entrance","dt_stadium__alfa1","doontoon03","doontoon19","doontoon24","doontoon29","doontoon_top06"})
+        Require(BuildingCandidate(1,false,false,name),"Downtown body or stadium mistaken for terrain");
+    for(const char* name:{"doontoon09","doontoon11","doontoon59","doontoon61","doontoon62","doontoon63","doontoon67","doontoon70","dt_hotel_waldt","LODntoon09","LODntoon11","LODntoon59","LODntoon61","LODntoon62","LODntoon63","LODntoon67","LODntoon70","LODhotel_waldt","dt_carpsaces13","dt_carpsaces14","dtoon62_spaces"}) {
+        Require(TerrainModelName(name),"neutral Downtown pavement not usable as ground");
+        Require(!BuildingCandidate(1,false,false,name)&&!VegetationModelName(name),"Downtown pavement joins moving building groups");
+    }
+    const auto stadiumProbes=SceneryGroundProbes({-150,-100,0,150,100,96});
+    Require(Near(stadiumProbes[5].x,0)&&Near(stadiumProbes[5].y,-100.75),"long building lacks street-facing edge probe");
+    Require(Near(stadiumProbes[9].x,-75)&&Near(stadiumProbes[9].y,-50),"stadium courtyard probe missing");
+    const auto coastalProbes=SceneryGroundProbes({-1596.85f,1128.80f,-11.26f,-980.66f,1533.23f,84.96f});
+    // Verified stock road collision exists near this strip; center/corners of
+    // the stadium's footprint fall into holes or water instead.
+    Require(Near(coastalProbes[22].x,-979.91,.001)&&Near(coastalProbes[22].y,1381.56875,.001),"stadium narrow eastern pavement fallback missing");
+    for(const char* name:{"streetlamp1","trafficlight1","rd_sign01","trashbin1","parkmeter01","bench01"}) {
+        Require(StreetObjectName(SceneryName(name))&&!BuildingCandidate(1,false,false,name),"street category overlaps buildings or omits furniture");
+    }
+    for(const char* name:{"fencesmallb","tall_fence","electricgate","columbiangate","comgate2open","comgate1closed","LODgate2","man1railing"})
+        Require(StreetObjectName(SceneryName(name))&&!BuildingCandidate(1,false,false,name),"fence/gate/railing missing from independent F3 group");
+    for(const char* name:{"veg_palwee01","veg_palwee02","veg_palwee03","veg_palmkb5","veg_palmkb8","veg_palmbig14"})
+        Require(VegetationModelName(name),"stock palm variant missing from F5 group");
+    for(const char* name:{"veg_palm04","veg_palmkb1","veg_palmkb2","veg_palmkb3","veg_palmkb4","veg_palmkb9","veg_palmkb7","veg_palmkb10","veg_palmkbb11","veg_palmkb13","veg_palmkb14","veg_palm01","washskyplant1","washskyplant2","wshotelveg1","nrth7veg","nrth1veg21","nrth3veg59","nrth4veg212","washpshoutveg","nbwbusshy2"}) {
+        Require(VegetationModelName(name),"eastern island foliage omitted from F5");
+        Require(!BuildingCandidate(1,VegetationModelName(name),false,name),"eastern island foliage overlaps buildings");
+    }
+    Require(!StreetObjectName("wshotelsign35")&&!StreetObjectName("od_wtsign"),"attached sign must follow its structure");
+    Require(!Settings{}.streetObjects,"street objects should be opt-in");
+    const std::vector<SceneryBounds> pieces{{0,0,0,10,10,20},{10,0,0,20,10,20},{19,4,12,21,6,14},{100,100,0,110,110,30},{-5,-5,0,25,15,20}};
+    const auto groups=GroupScenery(pieces,{true,true,false,true,false},{true,true,true,true,false});
+    Require(Near(groups[0].z0,groups[2].z0)&&Near(groups[0].z1,groups[2].z1)&&Near(groups[0].x1,21),"building detail did not share body transform");
+    Require(Near(groups[3].x0,100)&&Near(groups[3].z1,30),"detail or LOD joined separate buildings");
+    const std::vector<SceneryBounds> coastalParts{{0,0,-11,100,100,85},{100,0,5,120,100,25},{98,5,8,102,10,20},{0,0,-12,120,100,84},{500,500,0,510,510,30}};
+    const std::vector<bool> coastalCore{true,true,false,false,true};
+    const auto coastalGroups=GroupScenery(coastalParts,coastalCore,{true,true,true,false,true});
+    const auto supports=SharedSceneryGround(coastalParts,coastalGroups,coastalCore,[](const SceneryBounds& b,float& ground){
+        // Only the front structure's courtyard probes hit a real road.
+        if(b.x0==100&&b.x1==120){ground=7.7f;return true;}return false;
+    });
+    for(int i:{0,1,2,3}) Require(supports[i].found&&Near(supports[i].z,7.7),"coastal body/detail/LOD lost common support from a member footprint");
+    Require(!supports[4].found,"missing ground borrowed from an unrelated building");
+    const auto tower=GroupScenery({{0,0,20,10,10,25},{0,0,0,10,10,20},{2,2,18,3,3,22}},{true,false,false});
+    Require(Near(tower[0].z0,0)&&Near(tower[1].z0,0)&&Near(tower[2].z1,25),"tower legs/tank/details lost common ground anchor");
+    const auto firstScale=BuildingScale(.5,buildingSettings,groups[0].z1-groups[0].z0);
+    const auto detailScale=BuildingScale(.5,buildingSettings,groups[2].z1-groups[2].z0);
+    const float seam=13;
+    Require(Near(groups[0].z0+(seam-groups[0].z0)*firstScale.vertical,groups[2].z0+(seam-groups[2].z0)*detailScale.vertical),"building/detail seam separated");
+    Require(Near(StreetScale(.5,buildingSettings,2).horizontal,1)&&Near(StreetScale(.5,buildingSettings,2).vertical,.8),"independent street deformation failed");
+    Require(1000*std::abs(BuildingScale(.5,buildingSettings,1000).vertical-1)<=4.0001,"skyscraper exceeds building travel cap");
+    for(const char* name:{"nbecland01","nbmiamiland068","LODiamiland068","LODecland01","grasspatch","lhgrasspatchg","dockgrass","nbhospgrnd","beachblend01","nbeachb1","sjmgrass2"}) {
+        Require(TerrainModelName(name),"terrain/lawn mesh was not recognized");
+        Require(!BuildingCandidate(1,false,false,name)&&!VegetationModelName(name),"terrain/lawn affected by F4 or F5");
+    }
+    for(const char* name:{"veg_palm04","kb_planter+bush2","gf_hedge1_01","ht_veg02_dy","nhaitiplnt14","plants05b","drive_flowers06","LODmrgtREes4","bank_palms02","veg_ivy_balcny_kb3","club_exterior08","club_exterior09","club_exterior11","club_exterior12","man_maze"})
+        Require(VegetationModelName(name),"non-wind vegetation model omitted");
+    for(const char* name:{"Streetlamp2","doublestreetlght1","infernus","treeshadowgolf06","treeshadnbt01","svegrgedoor","dock_grassarea","LODK_grassarea","gf_golfwall","golf_gatesclosed","dts_bbdoor"})
+        Require(!VegetationModelName(name),"non-vegetation scenery incorrectly selected");
+    Require(!VegetationModelName(nullptr),"null vegetation name accepted");
+    const char boundedName[5]={'b','u','s','h','x'};
+    Require(VegetationModelName(boundedName,5),"bounded model name was not read safely");
+    Settings softerPlants;softerPlants.enabled=false;
+    Settings originalScenery,boostedScenery;
+    boostedScenery.vegetationStrength=originalScenery.vegetationStrength*1.13;
+    boostedScenery.vegetationMaxDisplacement=originalScenery.vegetationMaxDisplacement*1.13;
+    boostedScenery.buildingStrength=originalScenery.buildingStrength*1.13;
+    boostedScenery.buildingMaxDisplacement=originalScenery.buildingMaxDisplacement*1.13;
+    for(double height:{2.,20.,40.,1000.}) for(int i=0;i<100;++i) {
+        Require(Near(VegetationScale(i/100.,boostedScenery,height).vertical-1,
+            (VegetationScale(i/100.,originalScenery,height).vertical-1)*1.13),"plant boost must also affect travel-limited tall trees");
+        Require(Near(BuildingScale(i/100.,boostedScenery,height).vertical-1,
+            (BuildingScale(i/100.,originalScenery,height).vertical-1)*1.13),"building boost must also affect travel-limited towers");
+    }
+    for(int i=0;i<100;++i) {
+        const auto soft=VegetationScale(i/100.,softerPlants,2);
+        auto global=softerPlants;global.enabled=true;
+        const auto full=GetScale(i/100.,global);
+        Require(Near(soft.horizontal,1)&&Near(soft.vertical-1,(full.vertical-1)*.275),"vegetation must use fixed XY and 27.5 percent strength");
+    }
+    softerPlants.vegetationStrength=0;
+    Require(Near(VegetationScale(.5,softerPlants,2).vertical,1),"zero vegetation strength did not disable deformation");
+    softerPlants.vegetationStrength=1;
+    softerPlants.vegetationMaxDisplacement=1;
+    Require(Near(VegetationScale(.5,softerPlants,2).vertical,.8),"full vegetation strength should match global amplitude when below cap");
+    // A sheared, elevated tree has a root below its model origin. Its bottom
+    // footprint center must stay fixed in XYZ through every beat and phase.
+    const Matrix windTree{{1,0,0},0,{0,1,0},0,{.15f,-.22f,1},0,{17,31,7},0};
+    auto worldPoint=[](const Matrix& m,V3 p){return V3{
+        m.pos.x+m.right.x*p.x+m.up.x*p.y+m.at.x*p.z,
+        m.pos.y+m.right.y*p.x+m.up.y*p.y+m.at.y*p.z,
+        m.pos.z+m.right.z*p.x+m.up.z*p.y+m.at.z*p.z};};
+    auto compose=[&](const Matrix& parent,const Matrix& local){
+        Matrix result=local;
+        auto direction=[&](V3 v){auto p=worldPoint(parent,v);p.x-=parent.pos.x;p.y-=parent.pos.y;p.z-=parent.pos.z;return p;};
+        result.right=direction(local.right);result.up=direction(local.up);result.at=direction(local.at);result.pos=worldPoint(parent,local.pos);
+        return result;
+    };
+    const Matrix identity{{1,0,0},0,{0,1,0},0,{0,0,1},0,{0,0,0},0};
+    Matrix roadBasis=identity;roadBasis.pos={0,0,10};
+    for(int step=0;step<100;++step) {
+        const auto scale=BuildingScale(step/100.,buildingSettings,40);
+        const auto base=DeformPosition(V3{3,7,10},roadBasis,scale);
+        const auto basement=DeformPosition(V3{3,7,-15},roadBasis,scale);
+        const auto bulb=DeformPosition(V3{3,7,30},roadBasis,scale);
+        const auto mesh=DeformedMatrix(identity,roadBasis,scale);
+        const auto meshBulb=worldPoint(mesh,{3,7,30});
+        Require(Near(base.z,10)&&Near(base.x,3)&&Near(base.y,7),"visible road contact moved with buried foundation");
+        Require(basement.z<10,"underground foundation protruded above ground");
+        Require(Near(meshBulb.x,bulb.x)&&Near(meshBulb.y,bulb.y)&&Near(meshBulb.z,bulb.z),"halo and mesh bulb transforms diverged");
+    }
+    const Matrix rotatedParent{{0,2,0},0,{0,0,3},0,{4,0,0},0,{25,17,9},0};
+    const Matrix rotatedPlant{{0,0,1},0,{1,0,0},0,{0,1,0},0,{7,11,5},0};
+    const std::array<V3,5> group{{{-20,-10,-4},{30,20,-4},{10,-7,24},{-5,12,8},{0,0,3}}};
+    for(const auto& parent:{identity,rotatedParent}) {
+        const auto world=compose(parent,rotatedPlant);
+        VegetationAnchor bounds;for(auto p:group) bounds.Add(worldPoint(world,p));
+        const auto basis=bounds.Basis(world);
+        for(int i=0;i<100;++i) {
+            const auto scale=BuildingScale(i/100.,buildingSettings,bounds.top-bounds.bottom);
+            Matrix local{};
+            Require(VegetationLocalMatrix(DeformedMatrix(world,basis,scale),parent,local),"building parent transform failed");
+            const auto rendered=compose(parent,local);
+            for(auto p:group) {
+                const auto before=worldPoint(world,p),after=worldPoint(rendered,p);
+                Require(Near(before.x,after.x,.0001)&&Near(before.y,after.y,.0001),"rotated building footprint changed");
+                Require(Near(after.z,bounds.bottom+(before.z-bounds.bottom)*scale.vertical,.0001),"building deformation did not use grounded world Z");
+            }
+        }
+    }
+    for(const auto& parent:{identity,rotatedParent}) for(const auto& local:{windTree,rotatedPlant}) {
+        const auto world=compose(parent,local);
+        VegetationAnchor bounds;for(auto p:group) bounds.Add(worldPoint(world,p));
+        const auto basis=bounds.Basis(world);
+        Settings plants;plants.vegetationMaxDisplacement=.12;
+        for(int step=0;step<100;++step) {
+            const auto scale=VegetationScale(step/100.,plants,bounds.top-bounds.bottom);
+            const auto desired=DeformedMatrix(world,basis,scale);
+            Matrix adjusted{};
+            Require(VegetationLocalMatrix(desired,parent,adjusted),"valid parent matrix rejected");
+            const auto actual=compose(parent,adjusted);
+            for(auto p:group) {
+                const auto before=worldPoint(world,p),after=worldPoint(actual,p);
+                Require(Near(before.x,after.x,.0001)&&Near(before.y,after.y,.0001),"rotated/grouped vegetation drifted sideways");
+                Require(std::abs(after.z-before.z)<=.1201,"large vegetation exceeded 12cm peak travel");
+                Require(Near(after.z,bounds.bottom+(before.z-bounds.bottom)*scale.vertical,.0001),"plant used model axis instead of world Z");
+            }
+        }
+    }
+    for(double height:{.25,2.,10.,50.,100.}) {
+        Settings plants;plants.vegetationMaxDisplacement=.12;
+        const auto scale=VegetationScale(.5,plants,height);
+        Require(Near(scale.horizontal,1)&&height*std::abs(scale.vertical-1)<=.12001,"vegetation absolute travel cap failed");
+        if(height>=2) Require(Near(scale.vertical,1-std::min(.2*.275,.12/height)),"vegetation percentage or explicit travel cap failed");
+    }
+    Matrix invalid=identity;invalid.at={0,0,0};Matrix ignored{};
+    Require(!VegetationLocalMatrix(identity,invalid,ignored),"singular parent must be skipped");
+    VegetationAnchor plantAnchor;
+    Require(!plantAnchor.Valid(),"empty vegetation mesh must be skipped");
+    for(V3 p:std::array<V3,5>{{{-1,-1,-4},{1,-1,-4},{-1,1,-4},{1,1,-4},{0,0,8}}}) plantAnchor.Add(worldPoint(windTree,p));
+    plantAnchor.Add(V3{NAN,0,0});
+    const auto plantBasis=plantAnchor.Basis(windTree);
+    const auto root=worldPoint(windTree,{0,0,-4});
+    Require(Near(plantBasis.pos.x,root.x)&&Near(plantBasis.pos.y,root.y)&&Near(plantBasis.pos.z,root.z),"vegetation pivot is not the bottom footprint center");
+    Settings plantSettings;plantSettings.vegetation=true;
+    for(int step=0;step<100;++step) {
+        const auto scale=GetScale(step/100.,plantSettings);
+        const auto result=DeformedMatrix(windTree,plantBasis,scale);
+        const auto fixed=worldPoint(result,{0,0,-4});
+        Require(Near(fixed.x,root.x)&&Near(fixed.y,root.y)&&Near(fixed.z,root.z),"vegetation root moved during squash/stretch");
+        const auto top=worldPoint(result,{0,0,8});
+        Require(Near(top.z-root.z,12*scale.vertical),"vegetation height did not follow beat");
+        Require(Near(result.at.x,windTree.at.x*scale.horizontal)&&Near(result.at.y,windTree.at.y*scale.horizontal),"native vegetation wind shear was lost");
+    }
+    Require(!Settings{}.vegetation,"vegetation must be opt-in");
     BeatMap beatMap;
     std::istringstream beats("ViceBounceBeats 1\n370\n870\n1320\n1720\n");
     Require(beatMap.Load(beats)&&beatMap.Size()==4,"variable tempo map failed to load");
@@ -234,7 +366,6 @@ int main(){try{
     Require(!DoorInteractionActive(58,131),"unrelated standing animation bounced");
     settings.enabled=false;auto disabled=GetScale(0.5,settings);Require(disabled.horizontal==1&&disabled.vertical==1,"disabled identity");
     settings.enabled=true;settings.amplitude=nan;auto finite=GetScale(nan,settings);Require(std::isfinite(finite.horizontal)&&std::isfinite(finite.vertical),"invalid input leaked to render");
-    CheckLayout(layoutSteam);CheckLayout(layout10EN);
-    std::cout<<"PASS: independent car/other transport toggles, 135 BPM timing, config validation, 40000 phase samples, exact restoration, Steam and 1.0 EN executable layouts, 1000 occupant/light transforms and 1000 grounded wheel meshes\n";
+    std::cout<<"PASS: independent car/other transport toggles, 135 BPM timing, config validation, 40000 phase samples, exact restoration, 1000 occupant/light transforms and 1000 grounded wheel meshes\n";
     return 0;
 }catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

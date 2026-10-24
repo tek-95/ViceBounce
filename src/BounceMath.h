@@ -6,7 +6,7 @@
 #include <limits>
 
 namespace vicebounce {
-struct Settings { double bpm=135.0; double amplitude=0.20; int easing=1; bool enabled=true; bool otherVehicles=true; bool allPeople=false; };
+struct Settings { double bpm=135.0; double amplitude=0.20; int easing=1; bool enabled=true; bool otherVehicles=true; bool allPeople=false; bool vegetation=false; double vegetationStrength=0.275; double vegetationMaxDisplacement=1.0; bool buildings=false; double buildingStrength=0.30; double buildingMaxDisplacement=4.0; bool streetObjects=false; double streetStrength=1.0; };
 inline int PedEffect(bool allPeople,bool vehicleActive,bool inVehicle) {
     return vehicleActive&&inVehicle?2:(allPeople||vehicleActive?1:0);
 }
@@ -67,6 +67,20 @@ template<class Matrix,class Vector> Matrix UprightActorBasis(Matrix basis,const 
     basis.pos={pivot.x,pivot.y,pivot.z};basis.flags=0;
     return basis;
 }
+struct VegetationAnchor {
+    float bottom=std::numeric_limits<float>::infinity(),top=-std::numeric_limits<float>::infinity(),minX=0,maxX=0,minY=0,maxY=0;
+    template<class Vector> void Add(const Vector& p) {
+        if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z)) return;
+        top=std::max(top,p.z);
+        if(p.z<bottom) {bottom=p.z;minX=maxX=p.x;minY=maxY=p.y;}
+        else if(p.z==bottom) {minX=std::min(minX,p.x);maxX=std::max(maxX,p.x);minY=std::min(minY,p.y);maxY=std::max(maxY,p.y);}
+    }
+    bool Valid() const {return std::isfinite(bottom);}
+    template<class Matrix> Matrix Basis(Matrix basis) const {
+        auto pivot=basis.pos;pivot.x=(minX+maxX)*.5f;pivot.y=(minY+maxY)*.5f;pivot.z=bottom;
+        return UprightActorBasis(basis,pivot);
+    }
+};
 struct GroundAnchor {
     float original=std::numeric_limits<float>::infinity();
     float deformed=std::numeric_limits<float>::infinity();

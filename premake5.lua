@@ -60,3 +60,14 @@ project "ViceBounceImporterHostTests"
     files { "tests/ImporterHostTests.cpp" }
     targetdir "bin"
     objdir "build/importer-test-obj"
+
+project "ViceBounceCompatibilityTests"
+    kind "ConsoleApp"
+    language "C++"
+    cppdialect "C++17"
+    toolset "v143"
+    staticruntime "On"
+    runtime "Release"
+    files { "tests/CompatibilityTests.cpp" }
+    targetdir "bin"
+    objdir "build/compat-test-obj"
