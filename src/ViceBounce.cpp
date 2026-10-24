@@ -83,6 +83,7 @@ MusicImporter importer;
 bool importRequested=false,useBeatMap=true;
 double musicSyncOffsetMs=0;
 bool musicEnabled=true,musicPending=false,musicErrorLogged=false,musicStartedLogged=false;
+bool musicPaused=false;
 double firstBeatMs=0;
 using UpdateFrameFn=RwFrame*(__cdecl*)(RwFrame*);
 using GetLtmFn=RwMatrix*(__cdecl*)(RwFrame*);
@@ -176,6 +177,8 @@ void LoadConfig(bool requestImport=true) {
     vegetationModelsReady=false;
     GetPrivateProfileStringA("ViceBounce","MusicEnabled","1",value,sizeof(value),iniPath.c_str());
     musicEnabled=ParseNumber(value,1,0,1)>=0.5;
+    GetPrivateProfileStringA("ViceBounce","MusicPaused","0",value,sizeof(value),iniPath.c_str());
+    musicPaused=ParseNumber(value,0,0,1)>=0.5;
     GetPrivateProfileStringA("ViceBounce","MusicFirstBeatMs","0",value,sizeof(value),iniPath.c_str());
     firstBeatMs=ParseNumber(value,0,-3600000,3600000);
     wchar_t module[MAX_PATH]{},path[1024]{};
@@ -243,8 +246,8 @@ void Tick() {
     // Runs at the 3D/2D boundary, after deferred transparent vehicle atomics.
     RestoreFrames();
     static ULONGLONG previous=GetTickCount64();
-    static std::array<bool,13> wasDown{};
-    constexpr int keys[]={VK_F6,VK_F7,VK_PRIOR,VK_NEXT,VK_HOME,VK_END,VK_F8,VK_F9,VK_F10,VK_F11,VK_F5,VK_F4,VK_F3};
+    static std::array<bool,14> wasDown{};
+    constexpr int keys[]={VK_F6,VK_F7,VK_PRIOR,VK_NEXT,VK_HOME,VK_END,VK_F8,VK_F9,VK_F10,VK_F11,VK_F5,VK_F4,VK_F3,'P'};
     const auto now=GetTickCount64();
     const double elapsed=(now-previous)/1000.0;previous=now;
     const bool active=Focused()&&!Paused();
@@ -260,6 +263,7 @@ void Tick() {
     }
     if(musicPending&&!importer.Running()) {
         music.Configure(musicEnabled,musicFile);musicPending=false;beatMap=BeatMap{};
+        music.SetPaused(musicPaused);
         if(useBeatMap&&!beatMapFile.empty()) {
             std::ifstream input{std::filesystem::path(beatMapFile)};
             if(beatMap.Load(input)) Log("loaded beat map: "+std::to_string(beatMap.Size())+" beats");
@@ -274,7 +278,7 @@ void Tick() {
     } else if(musicEnabled&&music.Error()&&!musicErrorLogged) {
         Log("music unavailable MCI error="+std::to_string(music.Error())+"; visual fallback active; set MusicFile and press F7");musicErrorLogged=true;
     }
-    std::array<bool,13> pressed{};
+    std::array<bool,14> pressed{};
     for(size_t i=0;i<wasDown.size();++i) {
         const bool down=(GetAsyncKeyState(keys[i])&0x8000)!=0;
         pressed[i]=active&&down&&!wasDown[i];wasDown[i]=down;
@@ -303,6 +307,12 @@ void Tick() {
         Status(synced?"F9 current track position marked as squash beat":"F9 squash beat phase reset");
     }
     if(pressed[8]){cfg.allPeople=!cfg.allPeople;SaveValue("AllPeople",cfg.allPeople);Status("F10 all people toggle");}
+    if(pressed[13]){
+        musicPaused=!musicPaused;
+        music.SetPaused(musicPaused);SaveValue("MusicPaused",musicPaused);
+        Status(musicPaused?"P music paused":"P music resumed");
+        Log(musicPaused?"music paused; squash continues on the configured BPM":"music resumed");
+    }
 }
 
 struct SavedFrame { RwFrame* frame=nullptr; RwMatrix original{}; bool scenery=false; };
