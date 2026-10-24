@@ -9,6 +9,9 @@ Make Vice City bounce to your music.
   <a href="https://x.com/vicebounce_fun">
     <img src="https://img.shields.io/badge/-@vicebounce__fun-000000?style=for-the-badge&logo=x&logoColor=white" alt="ViceBounce on X">
   </a>
+  <br>
+  <sub><b>Memecoin</b> · launching <b>Oct 24, 15:00 UTC</b> on <a href="https://pump.fun">pump.fun</a> · contract address will be posted here and on <a href="https://x.com/vicebounce_fun">@vicebounce_fun</a><br>
+  Made for fun. Not required for the mod, not an investment. Other tokens using the name aren't ours.</sub>
 </p>
 
 <p align="center">
@@ -24,7 +27,10 @@ Make Vice City bounce to your music.
     <img src="https://img.shields.io/badge/Download-ViceBounce_0.11.1_·_Windows_x64-2ea44f?style=for-the-badge" alt="Download ViceBounce 0.11.1">
   </a>
   <br>
-  <sub><a href="https://github.com/tek-95/ViceBounce/releases">all releases</a></sub>
+  <sub>Also for
+  <a href="https://github.com/tek-95/ViceBounce/releases/download/sa-v0.3.7/SABounce-0.3.7.zip"><b>San Andreas</b></a> ·
+  <a href="https://github.com/Antriksh1984/LibertyBounce/releases/latest"><b>GTA III</b></a> ·
+  <a href="https://github.com/tek-95/ViceBounce/releases">all releases</a></sub>
 </p>
 
 Squash and stretch cars, bikes, boats, aircraft and people — including Tommy, passengers and cutscene actors.
@@ -57,6 +63,14 @@ Use **F9** to adjust alignment by ear. Automatic beat detection can make mistake
 | Home / End | Amplitude ±0.025 |
 
 Settings save automatically. Ctrl+Shift+F11 stays available for OBS.
+
+## Other GTA games
+
+| Game | Mod | Author | Where |
+| --- | --- | --- | --- |
+| Vice City | ViceBounce | [@tek-95](https://github.com/tek-95) | you are here (`main`) |
+| San Andreas | SABounce | [@wakeupdanny-dev](https://github.com/wakeupdanny-dev) | [branch `san-andreas`](https://github.com/tek-95/ViceBounce/tree/san-andreas) · [release](https://github.com/tek-95/ViceBounce/releases/tag/sa-v0.3.7) |
+| GTA III | LibertyBounce | [@Antriksh1984](https://github.com/Antriksh1984) | [Antriksh1984/LibertyBounce](https://github.com/Antriksh1984/LibertyBounce) |
 
 ## Support me
 
