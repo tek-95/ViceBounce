@@ -27,6 +27,8 @@ Then:
 3. Drag the **`scripts` folder from the ZIP** (it holds `SABounce.asi`, `SABounce.ini` and `SABounceMusic.exe`) into your game's
    folder, next to `gta_sa.exe`. If Windows asks whether to merge the folders, say yes.
 4. Start the game and load a save. Cars and other vehicles bounce right away.
+5. **To play your own song, press F11 in the game** and pick an MP3, FLAC, WAV or OGG file. Without it there is no music and
+   everything just bounces at a default tempo. More about music is in the [Music](#music) section below.
 
 To update, drag the `scripts` folder in again; when Windows asks about files with the same name, replace the `.asi` and the
 `.exe` but skip `SABounce.ini` to keep your settings. To uninstall, delete the three files and the `SABounceMusic` folder
@@ -129,6 +131,8 @@ Not affiliated with Rockstar Games. No game files, music or decompiled code are 
 3. Перетащи **папку `scripts` из архива** (в ней `SABounce.asi`, `SABounce.ini` и `SABounceMusic.exe`) в папку игры, рядом с
    `gta_sa.exe`. Если Windows спросит про объединение папок, согласись.
 4. Запусти игру и загрузи сохранение. Машины и остальной транспорт прыгают сразу.
+5. **Чтобы играла твоя музыка, нажми F11 в игре** и выбери файл MP3, FLAC, WAV или OGG. Без этого музыки не будет, всё просто
+   прыгает в темпе по умолчанию. Подробнее про музыку в разделе [Музыка](#музыка) ниже.
 
 Чтобы обновить мод, перетащи папку `scripts` ещё раз; когда Windows спросит про файлы с одинаковыми именами, замени `.asi` и
 `.exe`, а `SABounce.ini` пропусти, чтобы сохранить настройки. Чтобы удалить мод, удали три файла и папку `SABounceMusic` (кэш
