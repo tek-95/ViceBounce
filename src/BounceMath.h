@@ -6,7 +6,7 @@
 #include <limits>
 
 namespace vicebounce {
-struct Settings { double bpm=135.0; double amplitude=0.20; int easing=1; bool enabled=true; bool otherVehicles=true; bool allPeople=false; };
+struct Settings { double bpm=135.0; double amplitude=0.20; int easing=1; bool enabled=true; bool otherVehicles=true; bool allPeople=false; bool buildings=false; };
 inline int PedEffect(bool allPeople,bool vehicleActive,bool inVehicle) {
     return vehicleActive&&inVehicle?2:(allPeople||vehicleActive?1:0);
 }

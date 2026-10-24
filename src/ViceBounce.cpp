@@ -6,6 +6,7 @@
 #include "CColModel.h"
 #include "CPed.h"
 #include "CCutsceneObject.h"
+#include "CPools.h"
 #include "CAnimBlendAssociation.h"
 #include "CTimer.h"
 #include "eVehicleType.h"
@@ -91,7 +92,7 @@ void Log(const std::string& text) {
 }
 void Status(const char* action) {
     char value[160];
-    std::snprintf(value,sizeof(value),"%s cars=%d other=%d people=%d bpm=%.0f amplitude=%.3f easing=%d",action,cfg.enabled,cfg.otherVehicles,cfg.allPeople,cfg.bpm,cfg.amplitude,cfg.easing);
+    std::snprintf(value,sizeof(value),"%s cars=%d other=%d people=%d buildings=%d bpm=%.0f amplitude=%.3f easing=%d",action,cfg.enabled,cfg.otherVehicles,cfg.allPeople,cfg.buildings,cfg.bpm,cfg.amplitude,cfg.easing);
     Log(value);
 }
 void LoadConfig(bool requestImport=true) {
@@ -108,6 +109,8 @@ void LoadConfig(bool requestImport=true) {
     cfg.otherVehicles=ParseNumber(value,1,0,1)>=0.5;
     GetPrivateProfileStringA("ViceBounce","AllPeople","0",value,sizeof(value),iniPath.c_str());
     cfg.allPeople=ParseNumber(value,0,0,1)>=0.5;
+    GetPrivateProfileStringA("ViceBounce","Buildings","0",value,sizeof(value),iniPath.c_str());
+    cfg.buildings=ParseNumber(value,0,0,1)>=0.5;
     GetPrivateProfileStringA("ViceBounce","MusicEnabled","1",value,sizeof(value),iniPath.c_str());
     musicEnabled=ParseNumber(value,1,0,1)>=0.5;
     GetPrivateProfileStringA("ViceBounce","MusicFirstBeatMs","0",value,sizeof(value),iniPath.c_str());
@@ -150,8 +153,8 @@ void Tick() {
     // Runs at the 3D/2D boundary, after deferred transparent vehicle atomics.
     RestoreFrames();
     static ULONGLONG previous=GetTickCount64();
-    static std::array<bool,10> wasDown{};
-    constexpr int keys[]={VK_F6,VK_F7,VK_PRIOR,VK_NEXT,VK_HOME,VK_END,VK_F8,VK_F9,VK_F10,VK_F11};
+    static std::array<bool,11> wasDown{};
+    constexpr int keys[]={VK_F6,VK_F7,VK_PRIOR,VK_NEXT,VK_HOME,VK_END,VK_F8,VK_F9,VK_F10,VK_F11,VK_F5};
     const auto now=GetTickCount64();
     const double elapsed=(now-previous)/1000.0;previous=now;
     const bool active=Focused()&&!Paused();
@@ -183,13 +186,13 @@ void Tick() {
     } else if(musicEnabled&&music.Error()&&!musicErrorLogged) {
         Log("music unavailable MCI error="+std::to_string(music.Error())+"; visual fallback active; set MusicFile and press F7");musicErrorLogged=true;
     }
-    std::array<bool,10> pressed{};
+    std::array<bool,11> pressed{};
     for(size_t i=0;i<wasDown.size();++i) {
         const bool down=(GetAsyncKeyState(keys[i])&0x8000)!=0;
         pressed[i]=active&&down&&!wasDown[i];wasDown[i]=down;
     }
     if(!active) return;
-    if(!synced&&(cfg.enabled||cfg.otherVehicles||cfg.allPeople)&&elapsed<=0.25) phase=AdvancePhase(phase,elapsed,cfg.bpm);
+    if(!synced&&(cfg.enabled||cfg.otherVehicles||cfg.allPeople||cfg.buildings)&&elapsed<=0.25) phase=AdvancePhase(phase,elapsed,cfg.bpm);
     if(pressed[0]){cfg.enabled=!cfg.enabled;SaveValue("Enabled",cfg.enabled);Status("F6 toggle");}
     if(pressed[1]) LoadConfig();
     if(pressed[2]||pressed[3]){
@@ -209,6 +212,7 @@ void Tick() {
         Status(synced?"F9 current track position marked as squash beat":"F9 squash beat phase reset");
     }
     if(pressed[8]){cfg.allPeople=!cfg.allPeople;SaveValue("AllPeople",cfg.allPeople);Status("F10 all people toggle");}
+    if(pressed[10]){cfg.buildings=!cfg.buildings;SaveValue("Buildings",cfg.buildings);Status("F5 buildings toggle");}
     // Ctrl+Shift+F11 belongs to OBS. Only bare F11 opens the music picker.
     if(pressed[9]&&!(GetAsyncKeyState(VK_CONTROL)&0x8000)&&!(GetAsyncKeyState(VK_SHIFT)&0x8000)&&!(GetAsyncKeyState(VK_MENU)&0x8000)) {
         if(importer.Start(musicDirectory,true)) Log("music file picker opened");
@@ -250,6 +254,18 @@ void WheelGroundPoints(RwFrame* frame,const CMatrix& basis,Scale scale,GroundAnc
     }
     for(auto* child=frame->child;child;child=child->next) WheelGroundPoints(child,basis,scale,anchor,depth+1);
 }
+void BoxGroundPoints(const CColModel* collision,const CMatrix& basis,Scale scale,GroundAnchor& anchor) {
+    if(!collision) return;
+    const auto& box=collision->m_boundBox;
+    for(float x:{box.m_vecMin.x,box.m_vecMax.x})
+        for(float y:{box.m_vecMin.y,box.m_vecMax.y})
+            for(float z:{box.m_vecMin.z,box.m_vecMax.z}) {
+                RwV3d p{basis.pos.x+basis.right.x*x+basis.up.x*y+basis.at.x*z,
+                    basis.pos.y+basis.right.y*x+basis.up.y*y+basis.at.y*z,
+                    basis.pos.z+basis.right.z*x+basis.up.z*y+basis.at.z*z};
+                anchor.Add(p.z,DeformPosition(p,basis,scale).z);
+            }
+}
 float GroundOffset(CVehicle* vehicle) {
     for(const auto& saved:groundOffsets) if(saved.vehicle==vehicle) return saved.z;
     GroundAnchor anchor;
@@ -267,20 +283,8 @@ float GroundOffset(CVehicle* vehicle) {
         for(int node:{BIKE_WHEEL_FRONT,BIKE_WHEEL_REAR}) WheelGroundPoints(bike->m_aBikeNodes[node],basis,scale,anchor);
     }
     const bool wheelGeometry=anchor.Valid();
-    if(!anchor.Valid()&&vehicle->m_nModelIndex>=0&&vehicle->m_nModelIndex<6500) {
-        auto* model=ModelInfo(vehicle);
-        if(model&&model->m_pColModel) {
-            const auto& box=model->m_pColModel->m_boundBox;
-            for(float x:{box.m_vecMin.x,box.m_vecMax.x})
-                for(float y:{box.m_vecMin.y,box.m_vecMax.y})
-                    for(float z:{box.m_vecMin.z,box.m_vecMax.z}) {
-                        RwV3d p{basis.pos.x+basis.right.x*x+basis.up.x*y+basis.at.x*z,
-                            basis.pos.y+basis.right.y*x+basis.up.y*y+basis.at.y*z,
-                            basis.pos.z+basis.right.z*x+basis.up.z*y+basis.at.z*z};
-                        anchor.Add(p.z,DeformPosition(p,basis,scale).z);
-                    }
-        }
-    }
+    if(!anchor.Valid())
+        if(auto* model=ModelInfo(vehicle)) BoxGroundPoints(model->m_pColModel,basis,scale,anchor);
     const float offset=anchor.Offset();
     groundOffsets.push_back({vehicle,offset});
     static bool logged=false;
@@ -508,6 +512,27 @@ void BeforePedRender(CPed* ped) {
     static bool doorLogged=false;
     if(!ped->m_bInVehicle&&EffectActive(vehicle)&&!doorLogged){Log("door contact/entry actor rendered before in-vehicle flag");doorLogged=true;}
 }
+void DeformBuildings() {
+    // Runs after CGame::Process, before the world renders; Tick's RestoreFrames undoes it.
+    // Roads live in the treadable pool, so they stay flat.
+    if(!cfg.buildings||cfg.amplitude<=0||Paused()||!CPools::ms_pBuildingPool) return;
+    auto** models=reinterpret_cast<CBaseModelInfo**>(plugin::GetGlobalAddress(0x92C4D0));
+    const auto scale=ActiveScale();
+    auto* pool=CPools::ms_pBuildingPool;
+    // ponytail: walks every streamed building and DeformActor's frame dedupe is linear, so O(n^2);
+    // switch to the visible-entity list or a frame set if large draw distances stutter.
+    for(int i=0;i<pool->m_nSize;++i) {
+        auto* building=pool->GetAt(i);
+        if(!building||!building->m_pRwObject||building->m_nModelIndex<0||building->m_nModelIndex>=6500) continue;
+        // Keep each building's collision-box base on the ground.
+        GroundAnchor anchor;
+        const auto& basis=building->GetMatrix();
+        if(auto* model=models[building->m_nModelIndex]) BoxGroundPoints(model->m_pColModel,basis,scale,anchor);
+        DeformActor(building,basis,anchor.Offset());
+    }
+    static bool logged=false;
+    if(!logged){Log("buildings deformed from the building pool");logged=true;}
+}
 void __fastcall RenderCutscene(CCutsceneObject* actor,void*) {
     if((cfg.enabled||cfg.allPeople)&&cfg.amplitude>0&&!Paused()) {
         DeformCutsceneActor(actor);
@@ -728,6 +753,7 @@ struct ViceBounce {
         plugin::Events::pedRenderEvent.before+=BeforePedRender;
         plugin::Events::drawingEvent.before+=Tick;
         plugin::Events::gameProcessEvent.before+=RestoreFrames;
+        plugin::Events::gameProcessEvent.after+=DeformBuildings;
         Log("verified Steam full Render/PreRender for cars, bikes, boats, helicopters and planes; occupants, "+std::to_string(std::size(lightCallsites))+" light callsites, replay, cutscenes, atomic aircraft, standing actor anchors and cutscene destruction guards enabled");
     }
 } instance;

@@ -27,7 +27,7 @@ Make Vice City bounce to your music.
   <sub><a href="https://github.com/tek-95/ViceBounce/releases">all releases</a></sub>
 </p>
 
-Squash and stretch cars, bikes, boats, aircraft and people — including Tommy, passengers and cutscene actors.
+Squash and stretch cars, bikes, boats, aircraft and people — including Tommy, passengers and cutscene actors. Buildings can bounce too.
 
 ## Install
 
@@ -50,6 +50,7 @@ Use **F9** to adjust alignment by ear. Automatic beat detection can make mistake
 | F6 | Cars and cutscenes |
 | F8 | Bikes, boats and aircraft |
 | F10 | Everyone, including Tommy |
+| F5 | Buildings (off by default; roads stay flat) |
 | F11 | Import music |
 | F7 | Reload settings |
 | F9 | Align the beat |
