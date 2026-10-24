@@ -10,8 +10,9 @@ Make Vice City bounce to your music.
     <img src="https://img.shields.io/badge/-@vicebounce__fun-000000?style=for-the-badge&logo=x&logoColor=white" alt="ViceBounce on X">
   </a>
   <br>
-  <sub><b>Memecoin $VB</b> · <code>BiXQXFrVoZAEagv2ikQ841RfgNYziwpQxed1dBuapump</code> · <a href="https://pump.fun/coin/BiXQXFrVoZAEagv2ikQ841RfgNYziwpQxed1dBuapump">pump.fun</a><br>
-  Made for fun. Not required for the mod, not an investment. Other tokens using the name aren't ours.</sub>
+  <a href="https://pump.fun/coin/BiXQXFrVoZAEagv2ikQ841RfgNYziwpQxed1dBuapump"><img src="docs/live.svg" height="20" alt="LIVE" align="absmiddle"></a> <b>Memecoin $VB</b> · <code>BiXQXFrVoZAEagv2ikQ841RfgNYziwpQxed1dBuapump</code> · <b><a href="https://pump.fun/coin/BiXQXFrVoZAEagv2ikQ841RfgNYziwpQxed1dBuapump">pump.fun ↗</a></b>
+  <br>
+  <img src="docs/disclaimer.svg" alt="Made for fun. Not required for the mod, not an investment. Other tokens using the name aren't ours.">
 </p>
 
 <p align="center">

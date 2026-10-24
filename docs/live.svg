@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="62" height="22" viewBox="0 0 62 22" role="img" aria-label="LIVE">
+  <title>LIVE</title>
+  <rect x="1" y="1" width="60" height="20" rx="4" fill="#ffffff" stroke="#ff1f3d" stroke-width="2">
+    <animate attributeName="fill" values="#ffffff;#0d1117" dur="1.2s" calcMode="discrete" repeatCount="indefinite"/>
+  </rect>
+  <circle cx="12" cy="11" r="4" fill="#ff1f3d"/>
+  <text x="38" y="15.5" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" font-weight="800" letter-spacing="1" fill="#111111">LIVE
+    <animate attributeName="fill" values="#111111;#ffffff" dur="1.2s" calcMode="discrete" repeatCount="indefinite"/>
+  </text>
+</svg>
