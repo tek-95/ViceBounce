@@ -33,7 +33,7 @@ Make Vice City bounce to your music.
   <a href="https://github.com/tek-95/ViceBounce/releases">all releases</a></sub>
 </p>
 
-Squash and stretch cars, bikes, boats, aircraft and people — including Tommy, passengers and cutscene actors.
+Squash and stretch cars, bikes, boats, aircraft and people — including Tommy, passengers and cutscene actors. Optional modes add vegetation, buildings and street objects, with buildings moving vertically from their ground anchor.
 
 ## Install
 
@@ -55,6 +55,9 @@ Use **F9** to adjust alignment by ear. Automatic beat detection can make mistake
 
 | Key | Action |
 | --- | --- |
+| F3 | Street objects |
+| F4 | Buildings |
+| F5 | Vegetation |
 | F6 | Cars and cutscenes |
 | F8 | Bikes, boats and aircraft |
 | F10 | Everyone, including Tommy |
@@ -90,5 +93,7 @@ More of my stuff: [tek-95.com](https://tek-95.com) · [Instagram](https://instag
 ## Credits
 
 Inspired by [CarbonBounce](https://github.com/giovannosaur/CarbonBounce). Built with [Plugin-SDK](https://github.com/DK22Pac/plugin-sdk).
+
+Thanks to [@mrpulpe99](https://github.com/mrpulpe99) for retail 1.0 support and executable verification ([#2](https://github.com/tek-95/ViceBounce/pull/2)), and [@mattpannella](https://github.com/mattpannella) for the building-bounce proposal ([#1](https://github.com/tek-95/ViceBounce/pull/1)).
 
 [MIT license](LICENSE.txt). Dependencies retain their own licenses. [Importer build instructions](importer/BUILD.md).
