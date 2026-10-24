@@ -1132,7 +1132,7 @@ struct ViceBounce {
 #endif
         exceptionLog=CreateFileA((dir+"ViceBounce-crash.log").c_str(),FILE_APPEND_DATA,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
         AddVectoredExceptionHandler(0,RecordException);
-        Log(std::string("ViceBounce 0.19-dev startup; ")+plugin::GetGameVersionName());
+        Log(std::string("ViceBounce 0.19 startup; ")+plugin::GetGameVersionName());
         if(!CheckGame()) return;
         LoadConfig();
         savedFrames.reserve(256);

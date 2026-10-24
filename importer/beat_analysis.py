@@ -1,15 +1,16 @@
 """Local onset/tempo analysis. No network or artist-specific constants."""
 import numpy as np
 
-ANALYSIS_VERSION = 2
+ANALYSIS_VERSION = 4
 
-def onset_envelope(mono, rate):
+def onset_envelope(mono, rate, energy_weighted=False, energy_band=None):
     size, hop = 1024, 64
     if len(mono) < size * 4:
         raise ValueError('Track is too short for beat analysis (minimum about 1 second).')
     frames = np.lib.stride_tricks.sliding_window_view(mono, size)[::hop]
     frequencies = np.fft.rfftfreq(size, 1 / rate)
-    bass = (frequencies >= 35) & (frequencies <= 200)
+    low, high = energy_band or ((80, 200) if energy_weighted else (35, 200))
+    bass = (frequencies >= low) & (frequencies <= high)
     mid = (frequencies >= 200) & (frequencies <= 3000)
     bands = []
     for start in range(0, len(frames), 512):
@@ -17,8 +18,15 @@ def onset_envelope(mono, rate):
         bands.append(np.column_stack(((spectrum[:, bass] ** 2).sum(axis=1),
                                       (spectrum[:, mid] ** 2).sum(axis=1))))
     energy = np.concatenate(bands)
-    rises = np.maximum(0, np.diff(np.log1p(energy), axis=0, prepend=np.zeros((1, 2))))
-    envelope = np.convolve(rises[:, 0] + .15 * rises[:, 1], [.25, .5, .25], mode='same')
+    if energy_weighted:
+        # Log compression can make quiet syncopated bass notes outweigh the
+        # kick. A second hypothesis keeps kick-body attack energy (80..200 Hz),
+        # reducing both sub-bass melody and the effect of log compression.
+        rises = np.maximum(0, np.diff(energy[:, 0], prepend=0))
+        envelope = np.convolve(rises, [.25, .5, .25], mode='same')
+    else:
+        rises = np.maximum(0, np.diff(np.log1p(energy), axis=0, prepend=np.zeros((1, 2))))
+        envelope = np.convolve(rises[:, 0] + .15 * rises[:, 1], [.25, .5, .25], mode='same')
     times = (np.arange(len(frames)) * hop + size / 2) / rate
     if float(np.max(envelope)) < 1e-5:
         raise ValueError('No rhythmic signal found. Silent tracks are not imported automatically.')
@@ -43,6 +51,23 @@ def analyze(mono, rate, duration, manual_bpm=None, manual_offset_ms=None):
     if manual_bpm is None:
         coarse, _ = fit_tempo(envelope, times, np.arange(60, 200.01, .25))
         bpm, coherence = fit_tempo(envelope, times, np.arange(coarse - .3, coarse + .301, .01))
+        if coherence < .45:
+            # Try kick body first, preserving the existing successful fallback.
+            # Broken-beat bass can hide the quarter-note pulse entirely; hats
+            # and snare transients offer an independent timing reference.
+            for band in [(80, 200), (2000, 5000)]:
+                try:
+                    energy_envelope, _, _ = onset_envelope(mono, rate, energy_weighted=True, energy_band=band)
+                except ValueError:
+                    continue  # A quiet/missing band isn't a silent whole track.
+                energy_coarse, _ = fit_tempo(energy_envelope, times, np.arange(60, 200.01, .25))
+                energy_bpm, energy_coherence = fit_tempo(energy_envelope, times,
+                    np.arange(energy_coarse - .3, energy_coarse + .301, .01))
+                # Confident old grids stay untouched. A new reference must
+                # give substantially stronger evidence for one steady grid.
+                if energy_coherence >= .55 and energy_coherence >= coherence + .10:
+                    bpm, coherence, envelope = energy_bpm, energy_coherence, energy_envelope
+                    break
     else:
         bpm, coherence = fit_tempo(envelope, times, [manual_bpm])
     if manual_offset_ms is not None or manual_bpm is not None or coherence >= .45:

@@ -3,8 +3,10 @@ import sys, tempfile, unittest, json
 sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'work'/'deps'/'audio'))
 import numpy as np
 import soundfile as sf
-from beat_analysis import analyze
+from beat_analysis import analyze, onset_envelope, fit_tempo
 from import_music import import_track, read_ini, update_ini
+import import_music
+from unittest.mock import patch, Mock
 
 RATE=22050
 def signal(beats,duration):
@@ -22,6 +24,39 @@ def beat_error(predicted,reference):
     return np.array([np.min(np.abs(predicted-beat)) for beat in reference if predicted[0]+.1<beat<predicted[-1]-.1])
 
 class AnalysisTests(unittest.TestCase):
+    def test_percussion_grid_survives_irregular_bass(self):
+        rate, duration, bpm, offset = 11025, 32, 134, .015
+        audio = np.zeros(rate * duration, dtype=np.float32)
+        # Irregular low attacks hide tempo from the bass-only hypotheses.
+        for beat in np.random.default_rng(72).uniform(.2, duration - .2, 180):
+            t = np.arange(int(.12 * rate)) / rate; start = int(beat * rate)
+            audio[start:start + len(t)] += np.sin(2 * np.pi * 75 * t) * np.exp(-45 * t)
+        expected = np.arange(offset, duration - .05, 60 / bpm)
+        for beat in expected:
+            t = np.arange(int(.04 * rate)) / rate; start = int(beat * rate)
+            audio[start:start + len(t)] += .2 * np.sin(2 * np.pi * 3500 * t) * np.exp(-100 * t)
+        result = analyze(audio, rate, duration)
+        self.assertAlmostEqual(result['bpm'], bpm, delta=.05)
+        self.assertEqual(result['mode'], 'measured-grid')
+        self.assertLess(float(np.median(beat_error(result['beats_ms'], expected))), .025)
+    def test_syncopated_sub_bass_does_not_replace_the_kick_grid(self):
+        rate, duration = 11025, 30
+        audio = np.zeros(rate * duration, dtype=np.float32)
+        expected = np.arange(.37, duration - .2, .48)
+        # Quiet sub-bass attacks at 3/2 the kick rate fool log compression.
+        for frequency, amplitude, period in [(120, 1., .48), (50, .4, .32)]:
+            for beat in np.arange(.37, duration - .2, period):
+                t = np.arange(int(.12 * rate)) / rate
+                start = int(beat * rate)
+                audio[start:start + len(t)] += amplitude * np.sin(2 * np.pi * frequency * t) * np.exp(-45 * t)
+        envelope, times, _ = onset_envelope(audio, rate)
+        wrong, confidence = fit_tempo(envelope, times, np.arange(60, 200.01, .25))
+        self.assertAlmostEqual(wrong, 187.5)
+        self.assertLess(confidence, .45)
+        result = analyze(audio, rate, duration)
+        self.assertAlmostEqual(result['bpm'], 125, delta=.05)
+        self.assertEqual(result['mode'], 'measured-grid')
+        self.assertLess(float(np.median(beat_error(result['beats_ms'], expected))), .035)
     def test_shifted_and_padded_tracks(self):
         for bpm,offset in [(120,.37),(135,1.243),(148,.81)]:
             expected=np.arange(offset,25,60/bpm)
@@ -77,5 +112,50 @@ class ImportTests(unittest.TestCase):
         wav=self.root/'beat.wav';sf.write(wav,self.audio,RATE)
         result=import_track(wav,self.scripts,bpm=120,offset_ms=370)
         self.assertEqual(result['mode'],'manual-grid');self.assertAlmostEqual(result['first_beat_ms'],370)
+    def test_manual_pulse_persists_across_other_tracks_and_renames(self):
+        wav=self.root/'half-time.wav';sf.write(wav,self.audio,RATE)
+        chosen=import_track(wav,self.scripts,bpm=60,offset_ms=370)
+        other=self.root/'other.wav';sf.write(other,signal(np.arange(.2,14,60/140),16),RATE)
+        import_track(other,self.scripts)
+        renamed=self.root/'same-content.wav';renamed.write_bytes(wav.read_bytes())
+        restored=import_track(renamed,self.scripts)
+        self.assertEqual(restored['bpm'],60)
+        self.assertEqual(restored['first_beat_ms'],370)
+        self.assertEqual(restored['beat_count'],chosen['beat_count'])
+        self.assertEqual(restored['mode'],'manual-grid')
+        changed=import_track(renamed,self.scripts,bpm=120)
+        self.assertEqual(changed['bpm'],120)
+
+class PickerLifecycleTests(unittest.TestCase):
+    def run_picker(self, selection='song.mp3', error=None):
+        with tempfile.TemporaryDirectory() as folder:
+            user = Mock()
+            events = []
+            user.ShowWindowAsync.side_effect = lambda handle, mode: events.append(mode)
+            def imported(*args):
+                self.assertEqual(events, [6, 9])
+                user.SetForegroundWindow.assert_called_once_with(123)
+                return dict(bpm=35, beat_count=10, use_beat_map=True)
+            with patch.object(sys, 'argv', ['import_music', '--scripts-dir', folder,
+                                           '--game-window', '123', '--game-pid', '456']), \
+                 patch.object(import_music, 'game_window', return_value=(user, 123)), \
+                 patch.object(import_music, 'pick_file', return_value=selection, side_effect=error), \
+                 patch.object(import_music, 'import_track', side_effect=imported) as importer, \
+                 patch.object(import_music.ctypes.windll.user32, 'MessageBoxW') as message:
+                result = import_music.main()
+                message.assert_not_called()
+                self.assertEqual(events, [6, 9])
+                user.SetForegroundWindow.assert_called_once_with(123)
+                self.assertEqual(importer.call_count, 1 if selection and not error else 0)
+                return result
+
+    def test_game_restored_before_analysis_and_no_completion_modal(self):
+        self.assertEqual(self.run_picker(), 0)
+
+    def test_cancel_restores_game_without_blocking_next_f11(self):
+        self.assertEqual(self.run_picker(selection=None), 2)
+
+    def test_picker_error_restores_game_and_exits_without_hidden_modal(self):
+        self.assertEqual(self.run_picker(error=OSError('picker failed')), 1)
 
 if __name__=='__main__': unittest.main(verbosity=2)

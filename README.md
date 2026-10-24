@@ -23,8 +23,8 @@ Make Vice City bounce to your music.
 </p>
 
 <p align="center">
-  <a href="https://github.com/tek-95/ViceBounce/releases/latest/download/ViceBounce-0.11.1.zip">
-    <img src="https://img.shields.io/badge/Download-ViceBounce_0.11.1_·_Windows_x64-2ea44f?style=for-the-badge" alt="Download ViceBounce 0.11.1">
+  <a href="https://github.com/tek-95/ViceBounce/releases/latest/download/ViceBounce-0.19.zip">
+    <img src="https://img.shields.io/badge/Download-ViceBounce_0.19_·_Windows_x64-2ea44f?style=for-the-badge" alt="Download ViceBounce 0.19">
   </a>
   <br>
   <sub>Also for
@@ -43,11 +43,10 @@ Download the ZIP from [Releases](https://github.com/tek-95/ViceBounce/releases),
 
 Other game versions (including the 1.1 patch) are currently unsupported. On startup the plugin checks the executable against byte signatures and disables itself, noting the reason in `ViceBounce.log`, if anything does not match.
 
-To check an executable without launching the game, build `tools/VerifyExe.cpp` (`clang++ -std=c++17 tools/VerifyExe.cpp -o VerifyExe`, or `cl /std:c++17 /EHsc`) and run `VerifyExe "path\to\gta-vc.exe"`.
 
 ## Music
 
-Press **F11** during gameplay and select your own **MP3, FLAC, WAV or OGG**. The importer analyzes the beat and prepares looping playback locally. No Python installation needed. Music is not included or uploaded. The game minimizes while you choose a file and returns when the importer closes.
+Press **F11** in gameplay, pause or the main menu and select your own **MP3, FLAC, WAV or OGG**. The importer analyzes the beat and prepares looping playback locally. No Python installation needed. Music is not included or uploaded. The game minimizes while you choose a file and returns when the importer closes.
 
 Use **F9** to adjust alignment by ear. Automatic beat detection can make mistakes.
 
