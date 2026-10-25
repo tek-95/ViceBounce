@@ -247,7 +247,7 @@ void Tick() {
     RestoreFrames();
     static ULONGLONG previous=GetTickCount64();
     static std::array<bool,14> wasDown{};
-    constexpr int keys[]={VK_F6,VK_F7,VK_PRIOR,VK_NEXT,VK_HOME,VK_END,VK_F8,VK_F9,VK_F10,VK_F11,VK_F5,VK_F4,VK_F3,'P'};
+    constexpr int keys[]={VK_F6,VK_F7,VK_PRIOR,VK_NEXT,VK_HOME,VK_END,VK_F8,VK_F9,VK_F10,VK_F11,VK_F5,VK_F4,VK_F3,VK_OEM_3};
     const auto now=GetTickCount64();
     const double elapsed=(now-previous)/1000.0;previous=now;
     const bool active=Focused()&&!Paused();
@@ -310,7 +310,7 @@ void Tick() {
     if(pressed[13]){
         musicPaused=!musicPaused;
         music.SetPaused(musicPaused);SaveValue("MusicPaused",musicPaused);
-        Status(musicPaused?"P music paused":"P music resumed");
+        Status(musicPaused?"` music paused":"` music resumed");
         Log(musicPaused?"music paused; squash continues on the configured BPM":"music resumed");
     }
 }
@@ -1142,7 +1142,7 @@ struct ViceBounce {
 #endif
         exceptionLog=CreateFileA((dir+"ViceBounce-crash.log").c_str(),FILE_APPEND_DATA,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
         AddVectoredExceptionHandler(0,RecordException);
-        Log(std::string("ViceBounce 0.19 startup; ")+plugin::GetGameVersionName());
+        Log(std::string("ViceBounce 0.20 startup; ")+plugin::GetGameVersionName());
         if(!CheckGame()) return;
         LoadConfig();
         savedFrames.reserve(256);
