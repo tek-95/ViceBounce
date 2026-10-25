@@ -1,13 +1,10 @@
-# ViceBounce 0.19
+# ViceBounce 0.20
 
-- One ASI for classic Steam and retail 1.0 EN.
-- **F3** street objects, **F4** buildings, **F5** vegetation — independent, optional modes.
-- Buildings move vertically with shared ground anchors for related parts; terrain is filtered out.
-- Street-light effects follow their moving objects.
-- **F11** music selection works in gameplay, pause and the main menu, with improved beat detection and picker recovery.
+- **`** (the key below Esc) pauses and resumes the music in place. The squash keeps running on the configured BPM while the track is paused.
+- The pause state is saved as `MusicPaused` in `ViceBounce.ini`, so reloading settings with F7 stays silent.
 
-Tested in gameplay on Steam and Vice City Deluxe (1.0 EN).
+All other keys are unchanged from 0.19.
 
 **Updating:** close the game, copy the ZIP's `scripts` folder into your game folder and keep your existing `ViceBounce.ini`. Music is not included — press F11 to select your own track.
 
-Thanks to [@mrpulpe99](https://github.com/mrpulpe99) for retail 1.0 support and executable verification ([#2](https://github.com/tek-95/ViceBounce/pull/2)), and [@mattpannella](https://github.com/mattpannella) for the building-bounce proposal ([#1](https://github.com/tek-95/ViceBounce/pull/1)).
+Thanks to [@LZQCN](https://github.com/LZQCN) for music pause ([#5](https://github.com/tek-95/ViceBounce/pull/5)).

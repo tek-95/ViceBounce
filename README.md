@@ -24,8 +24,8 @@ Make Vice City bounce to your music.
 </p>
 
 <p align="center">
-  <a href="https://github.com/tek-95/ViceBounce/releases/latest/download/ViceBounce-0.19.zip">
-    <img src="https://img.shields.io/badge/Download-ViceBounce_0.19_·_Windows_x64-2ea44f?style=for-the-badge" alt="Download ViceBounce 0.19">
+  <a href="https://github.com/tek-95/ViceBounce/releases/latest/download/ViceBounce-0.20.zip">
+    <img src="https://img.shields.io/badge/Download-ViceBounce_0.20_·_Windows_x64-2ea44f?style=for-the-badge" alt="Download ViceBounce 0.20">
   </a>
   <br>
   <sub>Also for
@@ -49,7 +49,7 @@ Other game versions (including the 1.1 patch) are currently unsupported. On star
 
 Press **F11** in gameplay, pause or the main menu and select your own **MP3, FLAC, WAV or OGG**. The importer analyzes the beat and prepares looping playback locally. No Python installation needed. Music is not included or uploaded. The game minimizes while you choose a file and returns when the importer closes.
 
-Press **P** to pause and resume the music in place. The squash keeps running on the configured BPM while the track is paused.
+Press **`** (the key below Esc) to pause and resume the music in place. The squash keeps running on the configured BPM while the track is paused.
 
 Use **F9** to adjust alignment by ear. Automatic beat detection can make mistakes.
 
@@ -68,7 +68,7 @@ Use **F9** to adjust alignment by ear. Automatic beat detection can make mistake
 | F9 | Align the beat |
 | Page Up / Down | Manual BPM ±5; disables beat map |
 | Home / End | Amplitude ±0.025 |
-| P | Pause / resume music |
+| ` | Pause / resume music |
 
 Settings save automatically. Ctrl+Shift+F11 stays available for OBS.
 
@@ -97,6 +97,6 @@ More of my stuff: [tek-95.com](https://tek-95.com) · [Instagram](https://instag
 
 Inspired by [CarbonBounce](https://github.com/giovannosaur/CarbonBounce). Built with [Plugin-SDK](https://github.com/DK22Pac/plugin-sdk).
 
-Thanks to [@mrpulpe99](https://github.com/mrpulpe99) for retail 1.0 support and executable verification ([#2](https://github.com/tek-95/ViceBounce/pull/2)), and [@mattpannella](https://github.com/mattpannella) for the building-bounce proposal ([#1](https://github.com/tek-95/ViceBounce/pull/1)).
+Thanks to [@mrpulpe99](https://github.com/mrpulpe99) for retail 1.0 support and executable verification ([#2](https://github.com/tek-95/ViceBounce/pull/2)), [@LZQCN](https://github.com/LZQCN) for music pause ([#5](https://github.com/tek-95/ViceBounce/pull/5)), and [@mattpannella](https://github.com/mattpannella) for the building-bounce proposal ([#1](https://github.com/tek-95/ViceBounce/pull/1)).
 
 [MIT license](LICENSE.txt). Dependencies retain their own licenses. [Importer build instructions](importer/BUILD.md).
