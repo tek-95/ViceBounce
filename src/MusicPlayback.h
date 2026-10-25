@@ -8,12 +8,30 @@ namespace vicebounce {
 class MusicPlayback {
     MCIDEVICEID device=0;
     std::wstring filename;
-    bool requested=false,attempted=false;
+    bool requested=false,attempted=false,paused=false;
     MCIERROR lastError=0;
 public:
     void Configure(bool enabled,const std::wstring& path) {
         if(device) mciSendCommandW(device,MCI_CLOSE,MCI_WAIT,0);
         device=0;attempted=false;requested=enabled;filename=path;lastError=0;
+    }
+    // Pausing holds the track where it is; resuming continues from that point. The
+    // state survives Configure() so reloading the INI does not start audible playback.
+    bool IsPaused() const {return paused;}
+    void SetPaused(bool value) {
+        if(paused==value) return;
+        paused=value;
+        // No device yet: the next open applies the state.
+        if(!device) return;
+        const MCIERROR error=mciSendCommandW(device,value?MCI_PAUSE:MCI_RESUME,MCI_WAIT,0);
+        if(!error) return;
+        // A track that already ran to its end cannot resume; restart it instead.
+        if(!value) {
+            MCI_PLAY_PARMS play{};play.dwFrom=0;
+            lastError=mciSendCommandW(device,MCI_PLAY,MCI_FROM,reinterpret_cast<DWORD_PTR>(&play));
+            return;
+        }
+        lastError=error;
     }
     bool Position(double& position) {
         if(!requested||filename.empty()) return false;
@@ -36,8 +54,12 @@ public:
             if(lastError) {mciSendCommandW(device,MCI_CLOSE,MCI_WAIT,0);device=0;return false;}
             MCI_PLAY_PARMS play{};play.dwFrom=0;
             lastError=mciSendCommandW(device,MCI_PLAY,MCI_FROM,reinterpret_cast<DWORD_PTR>(&play));
+            if(!lastError&&paused) mciSendCommandW(device,MCI_PAUSE,MCI_WAIT,0);
         }
         if(!device||lastError) return false;
+        // Paused: there is no clock to follow, so report no position and let the caller
+        // keep advancing the phase from the configured BPM instead of freezing the squash.
+        if(paused) return false;
         MCI_STATUS_PARMS mode{};mode.dwItem=MCI_STATUS_MODE;
         lastError=mciSendCommandW(device,MCI_STATUS,MCI_STATUS_ITEM|MCI_WAIT,reinterpret_cast<DWORD_PTR>(&mode));
         if(lastError) return false;

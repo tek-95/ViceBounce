@@ -49,6 +49,8 @@ Other game versions (including the 1.1 patch) are currently unsupported. On star
 
 Press **F11** in gameplay, pause or the main menu and select your own **MP3, FLAC, WAV or OGG**. The importer analyzes the beat and prepares looping playback locally. No Python installation needed. Music is not included or uploaded. The game minimizes while you choose a file and returns when the importer closes.
 
+Press **P** to pause and resume the music in place. The squash keeps running on the configured BPM while the track is paused.
+
 Use **F9** to adjust alignment by ear. Automatic beat detection can make mistakes.
 
 ## Controls
@@ -66,6 +68,7 @@ Use **F9** to adjust alignment by ear. Automatic beat detection can make mistake
 | F9 | Align the beat |
 | Page Up / Down | Manual BPM ±5; disables beat map |
 | Home / End | Amplitude ±0.025 |
+| P | Pause / resume music |
 
 Settings save automatically. Ctrl+Shift+F11 stays available for OBS.
 

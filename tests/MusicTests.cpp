@@ -40,6 +40,17 @@ int main(int argc,char** argv) {try {
         Require(mciSendStringW(L"play ViceBounceMusic",nullptr,0,nullptr)==0,"MP3 resume failed");
         Require(player.Position(position),"MP3 near-end status failed");
     }
+    player.SetPaused(true);
+    Require(player.IsPaused(),"pause flag not set");
+    Require(!player.Position(position),"paused player kept reporting a position");
+    wchar_t pausedText[64]{};mciSendStringW(L"status ViceBounceMusic position",pausedText,64,nullptr);
+    const auto pausedAt=std::wcstoul(pausedText,nullptr,10);
+    Sleep(200);
+    wchar_t pausedLater[64]{};mciSendStringW(L"status ViceBounceMusic position",pausedLater,64,nullptr);
+    Require(std::wcstoul(pausedLater,nullptr,10)<=pausedAt+20,"paused audio position advanced");
+    player.SetPaused(false);
+    Require(!player.IsPaused(),"resume flag not cleared");
+    Require(player.Position(position),"resume did not restore playback");
     bool looped=false;double previous=position;
     const auto deadline=GetTickCount64()+2500;
     while(GetTickCount64()<deadline) {
@@ -51,6 +62,6 @@ int main(int argc,char** argv) {try {
     player.Configure(false,L"");
     Require(!player.Position(position),"disabled playback kept running");
     if(!supplied) std::filesystem::remove(file);
-    std::cout<<"PASS: local audio open, missing-file fallback, playback position, automatic loop and close\n";
+    std::cout<<"PASS: local audio open, missing-file fallback, playback position, pause/resume, automatic loop and close\n";
     return 0;
 } catch(const std::exception& error) {std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}
