@@ -18,3 +18,11 @@ try {
 if ($LASTEXITCODE -ne 0) { throw 'Compatibility test build failed' }
 & (Join-Path $PSScriptRoot 'bin\ViceBounceCompatibilityTests.exe')
 if ($LASTEXITCODE -ne 0) { throw 'Compatibility test failure' }
+
+& (Join-Path $vs 'MSBuild\Current\Bin\MSBuild.exe') (Join-Path $PSScriptRoot 'build\ViceBounceOnlineTests.vcxproj') /p:Configuration=Release /p:Platform=Win32 /m:1 /v:minimal /nologo
+if ($LASTEXITCODE -ne 0) { throw 'Online test build failed' }
+Push-Location $PSScriptRoot
+try {
+    & '.\bin\ViceBounceOnlineTests.exe'
+    if ($LASTEXITCODE -ne 0) { throw 'Online metadata test failure' }
+} finally { Pop-Location }

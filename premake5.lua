@@ -27,7 +27,7 @@ project "ViceBounce"
     end
     includedirs { sdk .. "/plugin_vc", sdk .. "/plugin_vc/game_vc", sdk .. "/plugin_vc/game_vc/enums", sdk .. "/plugin_vc/game_vc/rw", sdk .. "/shared", sdk .. "/shared/game", sdk .. "/safetyhook", sdk .. "/shared/dxsdk" }
     libdirs { sdk .. "/output/lib", sdk .. "/shared/dxsdk" }
-    links { "Plugin_VC", "d3d9", "d3dx9", "user32", "winmm" }
+    links { "Plugin_VC", "d3d9", "d3dx9", "user32", "winmm", "winhttp", "shell32" }
 
 
 project "ViceBounceTests"
@@ -76,3 +76,14 @@ project "ViceBounceCompatibilityTests"
     files { "tests/CompatibilityTests.cpp" }
     targetdir "bin"
     objdir "build/compat-test-obj"
+
+project "ViceBounceOnlineTests"
+    kind "ConsoleApp"
+    language "C++"
+    cppdialect "C++17"
+    toolset "v143"
+    staticruntime "On"
+    runtime "Release"
+    files { "tests/OnlineTests.cpp" }
+    targetdir "bin"
+    objdir "build/online-test-obj"

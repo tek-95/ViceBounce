@@ -3,6 +3,7 @@
 #include "../src/Vegetation.h"
 #include "../src/Buildings.h"
 #include "../src/SceneryGroups.h"
+#include "../src/KeyNames.h"
 #include <sstream>
 #include <array>
 #include <cstring>
@@ -254,6 +255,43 @@ int main(){try{
             Require(Near(scale.horizontal+scale.vertical,2),"opposing squash/stretch");
             const auto periodic=GetScale(p+1,settings);Require(Near(scale.horizontal,periodic.horizontal),"periodicity");
         }
+    }
+    // [Keys]: default layout, layout-independent punctuation, fallbacks.
+    {
+        const KeyList none{};
+        Require(ParseKeyList("F4",none)==KeyList{0x73,0},"F4 key");
+        Require(ParseKeyList("F11",none)==KeyList{0x7A,0},"F11 key");
+        Require(ParseKeyList("End",none)==KeyList{0x23,0},"End key");
+        Require(ParseKeyList("Grave, Pause",none)==KeyList{0xC0,0x13},"two keys for one action");
+        Require(ParseKeyList("minus",none)==KeyList{0xBD,0}&&ParseKeyList("Equals",none)==KeyList{0xBB,0},"tempo keys");
+        Require(ParseKeyList("Comma",none)==KeyList{0xBC,0}&&ParseKeyList("Period",none)==KeyList{0xBE,0},"amplitude keys");
+        Require(ParseKeyList("Slash",none)==KeyList{0xBF,0},"style key");
+        Require(ParseKeyList("x",none)==KeyList{'X',0}&&ParseKeyList("7",none)==KeyList{'7',0},"letters and digits");
+        Require(ParseKeyList("0x13",none)==KeyList{0x13,0}&&ParseKeyList("Numpad5",none)==KeyList{0x65,0},"hex and numpad");
+        Require(ParseKeyList("End ; reload",none)==KeyList{0x23,0},"inline comment");
+        Require(ParseKeyList("None",KeyList{0x23,0})==none,"None disables an action");
+        Require(ParseKeyList("Bogus",KeyList{0x23,0})==KeyList{0x23,0},"unknown name keeps the default");
+        Require(ParseKeyList("",KeyList{0x23,0})==KeyList{0x23,0},"empty value keeps the default");
+        Require(ParseKeyList("F1, F2, F3",none)==KeyList{0x70,0x71},"extra keys are ignored");
+    }
+    // UK style: same squash geometry, eleven curves, bounded overshoot.
+    settings=Settings{};settings.style=1;
+    for(int easing=0;easing<=10;++easing){settings.ukEasing=easing;settings.amplitude=0.20;
+        Require(Near(GetScale(0,settings).horizontal,0.8)&&Near(GetScale(0.5,settings).horizontal,1.2),"UK style extremes");
+        for(int i=0;i<10000;++i){double p=i/10000.0;auto scale=GetScale(p,settings);
+            Require(std::isfinite(scale.horizontal)&&scale.horizontal>=0.75-1e-6&&scale.horizontal<=1.25+1e-6,"UK style horizontal bounds");
+            Require(Near(scale.horizontal+scale.vertical,2),"UK style opposing squash/stretch");
+            const auto periodic=GetScale(p+1,settings);Require(Near(scale.horizontal,periodic.horizontal),"UK style periodicity");
+        }
+        settings.amplitude=0.75;
+        for(int i=0;i<10000;++i){auto scale=GetScale(i/10000.0,settings);
+            Require(scale.horizontal>0&&scale.vertical>0,"UK style overshoot flipped a model");}
+    }
+    {
+        Settings sine=settings,expo=settings;sine.amplitude=expo.amplitude=0.20;sine.ukEasing=1;expo.ukEasing=6;
+        Require(GetScale(0.1,expo).horizontal<GetScale(0.1,sine).horizontal-0.02,"UK expo must hold the stretch longer than sine");
+        Settings russian=Settings{};russian.style=0;russian.easing=1;
+        Require(Near(GetScale(0.1,russian).horizontal,GetScale(0.1,sine).horizontal),"UK sine must match Russian style sine");
     }
     const float h=std::sqrt(0.5f);
     Matrix original{{h,h,0},0x20003,{-h,h,0},0,{0,0,1},0,{27,-45,12},0};

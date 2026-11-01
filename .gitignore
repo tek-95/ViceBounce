@@ -19,3 +19,5 @@ ViceBounceMusic/
 ViceBounceImportStatus.json
 *.ini.before-music
 installation-backup*/
+ViceBounceUpdate.cache
+ViceBounceUpdate.cache.tmp

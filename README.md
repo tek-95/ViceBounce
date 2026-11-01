@@ -24,8 +24,8 @@ Make Vice City bounce to your music.
 </p>
 
 <p align="center">
-  <a href="https://github.com/tek-95/ViceBounce/releases/latest/download/ViceBounce-0.20.zip">
-    <img src="https://img.shields.io/badge/Download-ViceBounce_0.20_·_Windows_x64-2ea44f?style=for-the-badge" alt="Download ViceBounce 0.20">
+  <a href="https://github.com/tek-95/ViceBounce/releases/latest/download/ViceBounce-1.0.0.zip">
+    <img src="https://img.shields.io/badge/Download-ViceBounce_1.0.0_·_Windows_x64-2ea44f?style=for-the-badge" alt="Download ViceBounce 1.0.0">
   </a>
   <br>
   <sub>Also for
@@ -36,41 +36,61 @@ Make Vice City bounce to your music.
 
 Squash and stretch cars, bikes, boats, aircraft and people — including Tommy, passengers and cutscene actors. Optional modes add vegetation, buildings and street objects, with buildings moving vertically from their ground anchor.
 
+## What's new in 1.0.0
+
+- <img src="https://img.shields.io/badge/NEW-58a6ff?style=flat-square" alt="NEW" align="absmiddle"> **ViceBounce menu on F11.** Music, grouped bounce controls and **More settings** in one panel styled after Vice City's own menus. It opens anywhere — on foot, in vehicles, on pause — and the game keeps playing: only the arrows, Enter, Backspace and Esc go to the menu.
+- <img src="https://img.shields.io/badge/NEW-58a6ff?style=flat-square" alt="NEW" align="absmiddle"> **Change track from the menu.** Select the track row and press Enter to pick a new MP3, FLAC, WAV or OGG.
+- <img src="https://img.shields.io/badge/NEW-58a6ff?style=flat-square" alt="NEW" align="absmiddle"> **UK bounce curve** — the snappy Toyota Yaris meme style. Switch with **/** or choose **Bounce style** in **More settings**.
+- <img src="https://img.shields.io/badge/NEW-58a6ff?style=flat-square" alt="NEW" align="absmiddle"> **Pause the music in place** with **`** or **Pause**; the squash keeps the beat.
+- <img src="https://img.shields.io/badge/NEW-58a6ff?style=flat-square" alt="NEW" align="absmiddle"> **Update notices and developer news** inside the menu. Checked at most once a day, nothing installs itself.
+- <img src="https://img.shields.io/badge/UPDATED-ff63be?style=flat-square" alt="UPDATED" align="absmiddle"> **New hotkeys** — see [Controls](#controls) before playing.
+
 ## Install
 
-Requires **GTA Vice City** (**classic Steam** or the **retail 1.0 English** `gta-vc.exe`), **Windows 10/11 x64** and an **ASI loader** that loads plugins from `scripts`.
+Requires **GTA Vice City** (**classic Steam**, **retail 1.0** or **1.1**), **Windows 10/11 x64** and an [**ASI loader**](https://github.com/ThirteenAG/Ultimate-ASI-Loader) that loads plugins from `scripts`.
 
-Download the ZIP from [Releases](https://github.com/tek-95/ViceBounce/releases), close the game and copy its `scripts` contents into the game's `scripts` folder. Keep your existing `ViceBounce.ini` when updating.
+1. Close the game. If you don't already have an ASI loader, download [Ultimate ASI Loader — d3d8, Win32](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/Win32-latest/d3d8-Win32.zip) and extract `d3d8.dll` next to `gta-vc.exe`. Use **Win32**, even on 64-bit Windows. [Loader instructions](https://github.com/ThirteenAG/Ultimate-ASI-Loader#installation).
+2. Download ViceBounce from [Releases](https://github.com/tek-95/ViceBounce/releases) and copy the ZIP's `scripts` contents into the game's `scripts` folder (create it if needed).
 
-Other game versions (including the 1.1 patch) are currently unsupported. On startup the plugin checks the executable against byte signatures and disables itself, noting the reason in `ViceBounce.log`, if anything does not match.
+Keep your existing `ViceBounce.ini` when updating. If `d3d8.dll` already exists, back it up and check your existing loader before replacing it.
+
+The mod checks executable compatibility on startup. If the checks fail, it disables itself and records the reason in `ViceBounce.log`.
 
 
 ## Music
 
-Press **F11** in gameplay, pause or the main menu and select your own **MP3, FLAC, WAV or OGG**. The importer analyzes the beat and prepares looping playback locally. No Python installation needed. Music is not included or uploaded. The game minimizes while you choose a file and returns when the importer closes.
+Press **F11**, select the track row and press **Enter** (**Change**) to choose your own **MP3, FLAC, WAV or OGG**. The importer analyzes the beat and prepares looping playback locally. No Python installation needed. Music is not included or uploaded. The game minimizes while you choose a file and returns when the importer closes.
 
-Press **`** (the key below Esc) to pause and resume the music in place. The squash keeps running on the configured BPM while the track is paused.
+Press **`** (the key below Esc) or **Pause** to pause and resume the music in place. The squash keeps running on the configured BPM while the track is paused.
 
-Use **F9** to adjust alignment by ear. Automatic beat detection can make mistakes.
+Use **F10** to adjust alignment by ear. Automatic beat detection can make mistakes.
 
 ## Controls
 
+**Controls updated in 1.0.0** — check the hotkeys below before playing.
+
 | Key | Action |
 | --- | --- |
-| F3 | Street objects |
 | F4 | Buildings |
 | F5 | Vegetation |
 | F6 | Cars and cutscenes |
+| F7 | Street objects |
 | F8 | Bikes, boats and aircraft |
-| F10 | Everyone, including Tommy |
-| F11 | Import music |
-| F7 | Reload settings |
-| F9 | Align the beat |
-| Page Up / Down | Manual BPM ±5; disables beat map |
-| Home / End | Amplitude ±0.025 |
-| ` | Pause / resume music |
+| F9 | Everyone, including Tommy |
+| F10 | Align the beat |
+| F11 | Open / close ViceBounce menu |
+| ` or Pause | Pause / resume music |
+| - / = | Manual BPM ∓5; disables beat map |
+| , / . | Amplitude ∓0.025 |
+| / | Russian style / UK style |
+| End | Reload settings |
 
-Settings save automatically. Ctrl+Shift+F11 stays available for OBS.
+The defaults avoid Vice City's own keys (F1–F3 replays, Page Up/Down sniper zoom, Home camera) and letters, so typing cheats never toggles anything. Change any key in the `[Keys]` section of `ViceBounce.ini`.
+
+**Russian style** is the classic smooth squash. **UK style** is the snappy one from the Toyota Yaris meme; pick its curve with `UKEasing`.
+
+Settings save automatically. Reloading keeps the current track playing unless the music file changed. Ctrl+Shift+F11 stays available for OBS.
+
 
 ## Other GTA games
 
@@ -95,7 +115,7 @@ More of my stuff: [tek-95.com](https://tek-95.com) · [Instagram](https://instag
 
 ## Credits
 
-Inspired by [CarbonBounce](https://github.com/giovannosaur/CarbonBounce). Built with [Plugin-SDK](https://github.com/DK22Pac/plugin-sdk).
+Inspired by [CarbonBounce](https://github.com/giovannosaur/CarbonBounce), where the UK style curves come from. Built with [Plugin-SDK](https://github.com/DK22Pac/plugin-sdk).
 
 Thanks to [@mrpulpe99](https://github.com/mrpulpe99) for retail 1.0 support and executable verification ([#2](https://github.com/tek-95/ViceBounce/pull/2)), [@LZQCN](https://github.com/LZQCN) for music pause ([#5](https://github.com/tek-95/ViceBounce/pull/5)), and [@mattpannella](https://github.com/mattpannella) for the building-bounce proposal ([#1](https://github.com/tek-95/ViceBounce/pull/1)).
 

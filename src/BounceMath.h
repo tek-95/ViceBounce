@@ -6,7 +6,9 @@
 #include <limits>
 
 namespace vicebounce {
-struct Settings { double bpm=135.0; double amplitude=0.20; int easing=1; bool enabled=true; bool otherVehicles=true; bool allPeople=false; bool vegetation=false; double vegetationStrength=0.275; double vegetationMaxDisplacement=1.0; bool buildings=false; double buildingStrength=0.30; double buildingMaxDisplacement=4.0; bool streetObjects=false; double streetStrength=1.0; };
+// style 0: Russian style, the classic ViceBounce curves (easing 0-3).
+// style 1: UK style, the snappy squash of the Toyota Yaris meme (ukEasing 0-10).
+struct Settings { double bpm=135.0; double amplitude=0.20; int easing=1; int style=0; int ukEasing=6; bool enabled=true; bool otherVehicles=true; bool allPeople=false; bool vegetation=false; double vegetationStrength=0.275; double vegetationMaxDisplacement=1.0; bool buildings=false; double buildingStrength=0.30; double buildingMaxDisplacement=4.0; bool streetObjects=false; double streetStrength=1.0; };
 inline int PedEffect(bool allPeople,bool vehicleActive,bool inVehicle) {
     return vehicleActive&&inVehicle?2:(allPeople||vehicleActive?1:0);
 }
@@ -48,6 +50,38 @@ inline double Ease(double x,int type) {
         return x<0.5 ? (1-bounce(1-2*x))*0.5 : (1+bounce(2*x-1))*0.5;
     }
     return x;
+}
+// UK style curves: standard easings.net in-out formulas, numbered as in Carbon Bounce's
+// BouncingCars.ini (NFS: Carbon), where this set came from. Back and elastic overshoot slightly.
+inline double UkEase(double x,int type) {
+    constexpr double pi=3.14159265358979323846;
+    x=std::clamp(x,0.0,1.0);
+    auto inOutPow=[x](double n){return x<0.5 ? std::pow(2.0,n-1)*std::pow(x,n) : 1-std::pow(-2*x+2,n)*0.5;};
+    switch(type) {
+    case 1: return (1.0-std::cos(pi*x))*0.5;
+    case 2: return inOutPow(2);
+    case 3: return inOutPow(3);
+    case 4: return inOutPow(4);
+    case 5: return inOutPow(5);
+    case 6:
+        if(x<=0) return 0;
+        if(x>=1) return 1;
+        return x<0.5 ? std::pow(2.0,20*x-10)*0.5 : (2-std::pow(2.0,-20*x+10))*0.5;
+    case 7: return x<0.5 ? (1-std::sqrt(1-std::pow(2*x,2)))*0.5 : (std::sqrt(1-std::pow(-2*x+2,2))+1)*0.5;
+    case 8: {
+        constexpr double c2=1.70158*1.525;
+        return x<0.5 ? std::pow(2*x,2)*((c2+1)*2*x-c2)*0.5 : (std::pow(2*x-2,2)*((c2+1)*(2*x-2)+c2)+2)*0.5;
+    }
+    case 9: {
+        if(x<=0) return 0;
+        if(x>=1) return 1;
+        constexpr double c5=2*pi/4.5;
+        return x<0.5 ? -(std::pow(2.0,20*x-10)*std::sin((20*x-11.125)*c5))*0.5
+                     : std::pow(2.0,-20*x+10)*std::sin((20*x-11.125)*c5)*0.5+1;
+    }
+    case 10: return Ease(x,3);
+    default: return x;
+    }
 }
 inline double AdvancePhase(double phase,double seconds,double bpm) {
     if(!std::isfinite(phase)) phase=0;
@@ -97,7 +131,9 @@ inline Scale GetScale(double phase,const Settings& settings) {
     if(!std::isfinite(phase)) phase=0;
     phase-=std::floor(phase);
     const double t=phase<0.5 ? phase*2 : (1-phase)*2;
-    const double centered=2*Ease(t,settings.easing)-1;
+    const double eased=settings.style==1 ? UkEase(t,settings.ukEasing) : Ease(t,settings.easing);
+    // Overshooting curves stay bounded so the squash never flips a model inside out.
+    const double centered=std::clamp(2*eased-1,-1.25,1.25);
     const double amplitude=std::isfinite(settings.amplitude) ? std::clamp(settings.amplitude,0.0,0.75) : 0.20;
     return {float(1+amplitude*centered),float(1-amplitude*centered)};
 }

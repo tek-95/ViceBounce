@@ -66,10 +66,12 @@ void CheckLayout(const GameLayout& layout){
         std::string why;
         Require(!VerifyLayout(layout,broken,why)&&!why.empty(),(name+" layout accepted a corrupted image at "+detail::Hex(address)).c_str());
     }
-    // The two executables must never accept each other's code.
-    const GameLayout& other=&layout==&layoutSteam?layout10EN:layoutSteam;
-    std::string otherFailure;
-    Require(!VerifyLayout(other,image,otherFailure),"layouts for different executables must not match one another");
+    // The executables must never accept each other's code.
+    for(const GameLayout* other:{&layoutSteam,&layout10EN,&layout11EN}) {
+        if(other==&layout) continue;
+        std::string otherFailure;
+        Require(!VerifyLayout(*other,image,otherFailure),"layouts for different executables must not match one another");
+    }
 }
 int main(){try{
     BeatMap beatMap;
@@ -234,7 +236,7 @@ int main(){try{
     Require(!DoorInteractionActive(58,131),"unrelated standing animation bounced");
     settings.enabled=false;auto disabled=GetScale(0.5,settings);Require(disabled.horizontal==1&&disabled.vertical==1,"disabled identity");
     settings.enabled=true;settings.amplitude=nan;auto finite=GetScale(nan,settings);Require(std::isfinite(finite.horizontal)&&std::isfinite(finite.vertical),"invalid input leaked to render");
-    CheckLayout(layoutSteam);CheckLayout(layout10EN);
-    std::cout<<"PASS: independent car/other transport toggles, 135 BPM timing, config validation, 40000 phase samples, exact restoration, Steam and 1.0 EN executable layouts, 1000 occupant/light transforms and 1000 grounded wheel meshes\n";
+    CheckLayout(layoutSteam);CheckLayout(layout10EN);CheckLayout(layout11EN);
+    std::cout<<"PASS: independent car/other transport toggles, 135 BPM timing, config validation, 40000 phase samples, exact restoration, Steam, 1.0 EN and 1.1 EN executable layouts, 1000 occupant/light transforms and 1000 grounded wheel meshes\n";
     return 0;
 }catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

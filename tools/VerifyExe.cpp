@@ -68,7 +68,7 @@ int main(int argc,char** argv) {
             memory.Word(0x667BF0)==0x53E58955?"yes":"no",
             memory.Word(0x667C40)==0x53E58955?"yes":"no",
             memory.Word(0x666BA0)==0x53E58955?"yes":"no");
-        const vicebounce::GameLayout* layouts[]={&vicebounce::layout10EN,&vicebounce::layoutSteam};
+        const vicebounce::GameLayout* layouts[]={&vicebounce::layout10EN,&vicebounce::layout11EN,&vicebounce::layoutSteam};
         int matches=0;
         for(const auto* layout:layouts) {
             std::string failure;

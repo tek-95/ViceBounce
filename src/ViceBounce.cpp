@@ -32,14 +32,23 @@
 #include "MusicPlayback.h"
 #include "BeatMap.h"
 #include "MusicImporter.h"
+#include "KeyNames.h"
+#include "OnlineUpdates.h"
+#include "MenuFontLayout.h"
+#include "ModMenuLayout.h"
+#include "MenuModel.h"
+#include "CFontDetails.h"
+#include "CPad.h"
+#include "CPlayerPed.h"
+#include <shellapi.h>
 #include <filesystem>
 
 extern "C" IMAGE_DOS_HEADER __ImageBase;
 namespace {
 using namespace vicebounce;
 const GameLayout* layout=nullptr;
-bool retailExecutable=false;
-uintptr_t GameAddress(uintptr_t address){return plugin::GetGlobalAddress(AddressForVersion(address,retailExecutable));}
+GameExe gameExe=GameExe::Steam;
+uintptr_t GameAddress(uintptr_t address){return plugin::GetGlobalAddress(AddressForVersion(address,gameExe));}
 std::vector<LightCallsite> lightCallsites;
 Settings cfg;
 // Every verified Steam vtable inheriting CEntity::PreRender, including map
@@ -85,6 +94,27 @@ double musicSyncOffsetMs=0;
 bool musicEnabled=true,musicPending=false,musicErrorLogged=false,musicStartedLogged=false;
 bool musicPaused=false;
 double firstBeatMs=0;
+// What the player currently has open; a reload restarts the track only when this changes.
+bool openedMusicEnabled=false;
+std::wstring openedMusicFile,loadedBeatMapFile,configuredMusicSource;
+bool loadedBeatMapUse=false;
+OnlineUpdates onlineUpdates;
+bool onlineEnabled=true,onlineVersions=true,onlineAnnouncements=true,onlineFontReady=false,menuQuadReady=false;
+// [Keys] in ViceBounce.ini. Defaults avoid the game's own keys (F1-F3 replays, PgUp/PgDn
+// sniper zoom, Home camera, Insert radio, Delete lock-on) and letters used by cheats.
+enum class Action { Buildings,Vegetation,Cars,StreetObjects,OtherVehicles,AllPeople,AlignBeat,MusicPicker,
+                    Reload,MusicPause,TempoDown,TempoUp,AmplitudeDown,AmplitudeUp,BounceStyle,Count };
+struct Hotkey { const char* name; const char* defaults; KeyList keys; bool wasDown; };
+std::array<Hotkey,size_t(Action::Count)> hotkeys{{
+    {"Buildings","F4"},{"Vegetation","F5"},{"Cars","F6"},{"StreetObjects","F7"},{"OtherVehicles","F8"},
+    {"AllPeople","F9"},{"AlignBeat","F10"},{"MusicPicker","F11"},{"Reload","End"},{"MusicPause","Grave, Pause"},
+    {"TempoDown","Minus"},{"TempoUp","Equals"},{"AmplitudeDown","Comma"},{"AmplitudeUp","Period"},{"BounceStyle","Slash"},
+}};
+Hotkey& HotkeyFor(Action action) { return hotkeys[size_t(action)]; }
+bool KeyDown(const Hotkey& hotkey) {
+    for(int code:hotkey.keys) if(code&&(GetAsyncKeyState(code)&0x8000)) return true;
+    return false;
+}
 using UpdateFrameFn=RwFrame*(__cdecl*)(RwFrame*);
 using GetLtmFn=RwMatrix*(__cdecl*)(RwFrame*);
 UpdateFrameFn updateFrame=nullptr;
@@ -139,8 +169,8 @@ void Log(const std::string& text) {
     out << GetTickCount64() << " " << text << '\n';
 }
 void Status(const char* action) {
-    char value[160];
-    std::snprintf(value,sizeof(value),"%s cars=%d other=%d people=%d plants=%d bpm=%.0f amplitude=%.3f easing=%d",action,cfg.enabled,cfg.otherVehicles,cfg.allPeople,cfg.vegetation,cfg.bpm,cfg.amplitude,cfg.easing);
+    char value[192];
+    std::snprintf(value,sizeof(value),"%s cars=%d other=%d people=%d plants=%d bpm=%.0f amplitude=%.3f easing=%d style=%s ukEasing=%d",action,cfg.enabled,cfg.otherVehicles,cfg.allPeople,cfg.vegetation,cfg.bpm,cfg.amplitude,cfg.easing,cfg.style==1?"uk":"russian",cfg.ukEasing);
     Log(value);
 }
 void LoadConfig(bool requestImport=true) {
@@ -151,6 +181,10 @@ void LoadConfig(bool requestImport=true) {
     cfg.amplitude=ParseNumber(value,0.20,0,0.75);
     GetPrivateProfileStringA("ViceBounce","Easing","1",value,sizeof(value),iniPath.c_str());
     cfg.easing=int(ParseNumber(value,1,0,3));
+    GetPrivateProfileStringA("ViceBounce","BounceStyle","0",value,sizeof(value),iniPath.c_str());
+    cfg.style=int(ParseNumber(value,0,0,1));
+    GetPrivateProfileStringA("ViceBounce","UKEasing","6",value,sizeof(value),iniPath.c_str());
+    cfg.ukEasing=int(ParseNumber(value,6,0,10));
     GetPrivateProfileStringA("ViceBounce","Enabled","1",value,sizeof(value),iniPath.c_str());
     cfg.enabled=ParseNumber(value,1,0,1)>=0.5;
     GetPrivateProfileStringA("ViceBounce","OtherVehicles","1",value,sizeof(value),iniPath.c_str());
@@ -185,6 +219,10 @@ void LoadConfig(bool requestImport=true) {
     GetModuleFileNameW(reinterpret_cast<HMODULE>(&__ImageBase),module,MAX_PATH);
     std::wstring folder(module);folder=folder.substr(0,folder.find_last_of(L"\\/")+1);
     musicDirectory=folder;
+    onlineEnabled=GetPrivateProfileIntA("Online","Enabled",1,iniPath.c_str())!=0;
+    onlineVersions=GetPrivateProfileIntA("Online","CheckUpdates",1,iniPath.c_str())!=0;
+    onlineAnnouncements=GetPrivateProfileIntA("Online","ShowAnnouncements",1,iniPath.c_str())!=0;
+    onlineUpdates.Configure(folder,onlineEnabled&&(onlineVersions||onlineAnnouncements),GetPrivateProfileIntA("Online","CheckIntervalHours",24,iniPath.c_str()));
     const auto wideIni=folder+L"ViceBounce.ini";
     GetPrivateProfileStringW(L"ViceBounce",L"MusicFile",L"ViceBounceMusic.mp3",path,1024,wideIni.c_str());
     musicFile=path;
@@ -202,8 +240,19 @@ void LoadConfig(bool requestImport=true) {
     GetPrivateProfileStringA("ViceBounce","MusicAutoImport","1",value,sizeof(value),iniPath.c_str());
     const bool autoImport=ParseNumber(value,1,0,1)>=.5;
     importer.Configure(source,autoImport);
-    importRequested=requestImport&&musicEnabled&&autoImport&&!source.empty();
-    musicPending=true;musicErrorLogged=false;musicStartedLogged=false;
+    // A reload re-checks the source only when it points to a different file.
+    importRequested=(requestImport||source!=configuredMusicSource)&&musicEnabled&&autoImport&&!source.empty();
+    configuredMusicSource=source;
+    if(musicEnabled!=openedMusicEnabled||musicFile!=openedMusicFile) {
+        musicPending=true;musicErrorLogged=false;musicStartedLogged=false;
+    } else if(beatMapFile!=loadedBeatMapFile||useBeatMap!=loadedBeatMapUse) {
+        musicPending=true; // same track: Tick reloads only the beat map
+    }
+    music.SetPaused(musicPaused);
+    for(auto& hotkey:hotkeys) {
+        GetPrivateProfileStringA("Keys",hotkey.name,hotkey.defaults,value,sizeof(value),iniPath.c_str());
+        hotkey.keys=ParseKeyList(value,ParseKeyList(hotkey.defaults,{}));
+    }
     Status("config loaded");
 }
 void SaveValue(const char* name,double value) {
@@ -215,28 +264,40 @@ bool Focused() {
     GetWindowThreadProcessId(GetForegroundWindow(),&process);
     return process==GetCurrentProcessId();
 }
+#include "ModMenu.h"
 void MusicPickerControls() {
+    if(modMenuOpen&&(!Focused()||!ModMenuAvailable()))CloseModMenu();
+    if(Focused())InstallModMenuWindow();
     const int result=importer.Poll();
     if(result==0) {LoadConfig(false);Log("local music import/check completed; reloading track profile");}
     else if(result>0&&result!=2) Log("music import failed; see ViceBounceImportStatus.json; previous profile retained");
-    static bool wasDown=false;
-    const bool down=(GetAsyncKeyState(VK_F11)&0x8000)!=0;
-    const bool pressed=down&&!wasDown;wasDown=down;
+    auto& picker=HotkeyFor(Action::MusicPicker);
+    bool down=false,tapped=false;
+    for(int code:picker.keys)if(code){const auto state=GetAsyncKeyState(code);down|=(state&0x8000)!=0;tapped|=(state&1)!=0;}
+    const bool requested=InterlockedExchange(&modMenuToggleRequested,0)!=0;
+    const bool pressed=modMenuPreviousWndProc?requested:(down&&!picker.wasDown)||(!down&&tapped);picker.wasDown=down;
     // Music selection is also available on pause and before loading a save.
-    // Ctrl+Shift+F11 remains available for OBS.
+    // Ctrl/Shift/Alt combinations (Ctrl+Shift+F11 for OBS) are left alone.
     if(pressed&&Focused()&&!(GetAsyncKeyState(VK_CONTROL)&0x8000)&&!(GetAsyncKeyState(VK_SHIFT)&0x8000)&&!(GetAsyncKeyState(VK_MENU)&0x8000)) {
-        if(importer.Start(musicDirectory,true)) Log("music file picker opened");
-        else Log("music picker unavailable or import already running");
+        if(modMenuOpen)CloseModMenu();
+        else if(ModMenuAvailable()){modMenuOpen=true;modMenuLastInput=GetTickCount64();InterlockedExchange(&modMenuPendingKeys,0);ClearModMenuKeys();
+            char text[96];std::snprintf(text,sizeof(text),"ViceBounce control desk opened (%s vk=0x%02lX scan=0x%03lX)",requested?"window":"poll",
+                modMenuToggleKey&0xFF,(modMenuToggleKey>>8)&0x1FF);Log(text);}
+        else Log("ViceBounce menu unavailable: font verification failed");
     }
+    ModMenuInput();
 }
 // Plugin-SDK's VC menu event currently only defines 1.0 addresses. These two
-// Steam callsites both call CMenuManager::Draw (0x4A3663), verified below.
+// callsites per executable both call CMenuManager::Draw, verified below.
 plugin::ThiscallEvent<plugin::AddressListMulti<
     0x4A5C03, GAME_STEAM, plugin::H_CALL,
     0x4A5FFE, GAME_STEAM, plugin::H_CALL,
     0x4A5D33, GAME_10EN, plugin::H_CALL,
-    0x4A612E, GAME_10EN, plugin::H_CALL>,
+    0x4A612E, GAME_10EN, plugin::H_CALL,
+    0x4A5D53, GAME_11EN, plugin::H_CALL,
+    0x4A614E, GAME_11EN, plugin::H_CALL>,
     plugin::PRIORITY_BEFORE, plugin::ArgPickNone, void(CMenuManager*)> steamMenuDrawingEvent;
+
 void Tick() {
 #ifdef VICEBOUNCE_DIAGNOSTICS
     static bool firstDiagnosticFrame=true;
@@ -246,8 +307,6 @@ void Tick() {
     // Runs at the 3D/2D boundary, after deferred transparent vehicle atomics.
     RestoreFrames();
     static ULONGLONG previous=GetTickCount64();
-    static std::array<bool,14> wasDown{};
-    constexpr int keys[]={VK_F6,VK_F7,VK_PRIOR,VK_NEXT,VK_HOME,VK_END,VK_F8,VK_F9,VK_F10,VK_F11,VK_F5,VK_F4,VK_F3,VK_OEM_3};
     const auto now=GetTickCount64();
     const double elapsed=(now-previous)/1000.0;previous=now;
     const bool active=Focused()&&!Paused();
@@ -255,15 +314,21 @@ void Tick() {
     MusicPickerControls();
     if(importRequested) {
         importRequested=false;
-        if(importer.Start(musicDirectory)) {music.Configure(false,L"");Log("checking selected music file in background");}
+        if(importer.Start(musicDirectory)) {music.Configure(false,L"");openedMusicFile.clear();openedMusicEnabled=false;Log("checking selected music file in background");}
         else Log("automatic music import unavailable; existing track profile retained");
     }
     if(musicEnabled&&importer.Changed()&&importer.Start(musicDirectory)) {
-        music.Configure(false,L"");musicPending=true;Log("source music changed; rebuilding local track profile");
+        music.Configure(false,L"");openedMusicFile.clear();openedMusicEnabled=false;
+        musicPending=true;Log("source music changed; rebuilding local track profile");
     }
     if(musicPending&&!importer.Running()) {
-        music.Configure(musicEnabled,musicFile);musicPending=false;beatMap=BeatMap{};
-        music.SetPaused(musicPaused);
+        musicPending=false;
+        if(musicEnabled!=openedMusicEnabled||musicFile!=openedMusicFile) {
+            music.Configure(musicEnabled,musicFile);
+            music.SetPaused(musicPaused);
+            openedMusicEnabled=musicEnabled;openedMusicFile=musicFile;
+        }
+        beatMap=BeatMap{};loadedBeatMapFile=beatMapFile;loadedBeatMapUse=useBeatMap;
         if(useBeatMap&&!beatMapFile.empty()) {
             std::ifstream input{std::filesystem::path(beatMapFile)};
             if(beatMap.Load(input)) Log("loaded beat map: "+std::to_string(beatMap.Size())+" beats");
@@ -276,27 +341,30 @@ void Tick() {
         phase=useBeatMap&&beatMap.Valid()?beatMap.Phase(musicPosition-musicSyncOffsetMs):MusicPhase(musicPosition,firstBeatMs,cfg.bpm);
         if(!musicStartedLogged){Log("music playback active; track position controls squash on beats");musicStartedLogged=true;}
     } else if(musicEnabled&&music.Error()&&!musicErrorLogged) {
-        Log("music unavailable MCI error="+std::to_string(music.Error())+"; visual fallback active; set MusicFile and press F7");musicErrorLogged=true;
+        Log("music unavailable MCI error="+std::to_string(music.Error())+"; visual fallback active; set MusicFile and press the Reload key");musicErrorLogged=true;
     }
-    std::array<bool,14> pressed{};
-    for(size_t i=0;i<wasDown.size();++i) {
-        const bool down=(GetAsyncKeyState(keys[i])&0x8000)!=0;
-        pressed[i]=active&&down&&!wasDown[i];wasDown[i]=down;
+    std::array<bool,size_t(Action::Count)> pressed{};
+    for(size_t i=0;i<hotkeys.size();++i) {
+        if(i==size_t(Action::MusicPicker)) continue; // MusicPickerControls owns it
+        const bool down=KeyDown(hotkeys[i]);
+        pressed[i]=active&&down&&!hotkeys[i].wasDown;hotkeys[i].wasDown=down;
     }
+    auto hit=[&pressed](Action action){return pressed[size_t(action)];};
     if(!active) return;
     if(!synced&&(cfg.enabled||cfg.otherVehicles||cfg.allPeople||cfg.vegetation||cfg.buildings||cfg.streetObjects)&&elapsed<=0.25) phase=AdvancePhase(phase,elapsed,cfg.bpm);
-    if(pressed[12]){cfg.streetObjects=!cfg.streetObjects;SaveValue("StreetObjects",cfg.streetObjects);Log(cfg.streetObjects?"F3 street objects on":"F3 street objects off");}
-    if(pressed[11]){cfg.buildings=!cfg.buildings;SaveValue("Buildings",cfg.buildings);Log(cfg.buildings?"F4 buildings on":"F4 buildings off");}
-    if(pressed[10]){cfg.vegetation=!cfg.vegetation;SaveValue("Vegetation",cfg.vegetation);Status("F5 vegetation toggle");}
-    if(pressed[0]){cfg.enabled=!cfg.enabled;SaveValue("Enabled",cfg.enabled);Status("F6 toggle");}
-    if(pressed[1]) LoadConfig();
-    if(pressed[2]||pressed[3]){
-        cfg.bpm=std::clamp(cfg.bpm+(pressed[2]?5:-5),20.0,300.0);
+    if(hit(Action::StreetObjects)){cfg.streetObjects=!cfg.streetObjects;SaveValue("StreetObjects",cfg.streetObjects);Log(cfg.streetObjects?"street objects on":"street objects off");}
+    if(hit(Action::Buildings)){cfg.buildings=!cfg.buildings;SaveValue("Buildings",cfg.buildings);Log(cfg.buildings?"buildings on":"buildings off");}
+    if(hit(Action::Vegetation)){cfg.vegetation=!cfg.vegetation;SaveValue("Vegetation",cfg.vegetation);Status("vegetation toggle");}
+    if(hit(Action::Cars)){cfg.enabled=!cfg.enabled;SaveValue("Enabled",cfg.enabled);Status("cars toggle");}
+    if(hit(Action::Reload)) LoadConfig(false);
+    if(hit(Action::TempoUp)||hit(Action::TempoDown)){
+        cfg.bpm=std::clamp(cfg.bpm+(hit(Action::TempoUp)?5:-5),20.0,300.0);
         useBeatMap=false;SaveValue("MusicUseBeatMap",0);SaveValue("BPM",cfg.bpm);Status("manual tempo changed; beat map disabled");
     }
-    if(pressed[4]||pressed[5]){cfg.amplitude=std::clamp(cfg.amplitude+(pressed[4]?0.025:-0.025),0.0,0.75);SaveValue("Amplitude",cfg.amplitude);Status("amplitude changed");}
-    if(pressed[6]){cfg.otherVehicles=!cfg.otherVehicles;SaveValue("OtherVehicles",cfg.otherVehicles);Status("F8 other transport toggle");}
-    if(pressed[7]){
+    if(hit(Action::AmplitudeUp)||hit(Action::AmplitudeDown)){cfg.amplitude=std::clamp(cfg.amplitude+(hit(Action::AmplitudeUp)?0.025:-0.025),0.0,0.75);SaveValue("Amplitude",cfg.amplitude);Status("amplitude changed");}
+    if(hit(Action::BounceStyle)){cfg.style=cfg.style==1?0:1;SaveValue("BounceStyle",cfg.style);Status(cfg.style==1?"UK style bounce":"Russian style bounce");}
+    if(hit(Action::OtherVehicles)){cfg.otherVehicles=!cfg.otherVehicles;SaveValue("OtherVehicles",cfg.otherVehicles);Status("other transport toggle");}
+    if(hit(Action::AlignBeat)){
         phase=.5;
         if(synced){
             if(useBeatMap&&beatMap.Valid()) {
@@ -304,13 +372,13 @@ void Tick() {
                 SaveValue("MusicSyncOffsetMs",musicSyncOffsetMs);
             } else {firstBeatMs=musicPosition;SaveValue("MusicFirstBeatMs",firstBeatMs);}
         }
-        Status(synced?"F9 current track position marked as squash beat":"F9 squash beat phase reset");
+        Status(synced?"current track position marked as squash beat":"squash beat phase reset");
     }
-    if(pressed[8]){cfg.allPeople=!cfg.allPeople;SaveValue("AllPeople",cfg.allPeople);Status("F10 all people toggle");}
-    if(pressed[13]){
+    if(hit(Action::AllPeople)){cfg.allPeople=!cfg.allPeople;SaveValue("AllPeople",cfg.allPeople);Status("all people toggle");}
+    if(hit(Action::MusicPause)){
         musicPaused=!musicPaused;
         music.SetPaused(musicPaused);SaveValue("MusicPaused",musicPaused);
-        Status(musicPaused?"` music paused":"` music resumed");
+        Status(musicPaused?"music paused":"music resumed");
         Log(musicPaused?"music paused; squash continues on the configured BPM":"music resumed");
     }
 }
@@ -389,7 +457,7 @@ bool VegetationModel(CEntity* entity) {
             vegetationModels[i]=model&&VegetationModelName(model->m_szName,sizeof(model->m_szName));
             if(vegetationModels[i]) ++count;
         }
-        vegetationModelsReady=true;Log("vegetation model catalog ready: "+std::to_string(count)+" models; F7 refreshes catalog");
+        vegetationModelsReady=true;Log("vegetation model catalog ready: "+std::to_string(count)+" models; Reload refreshes catalog");
     }
     return vegetationModels[modelIndex];
 }
@@ -625,7 +693,7 @@ void __fastcall VegetationPreRender(CEntity* plant,void*) {
     }
     static bool logged[3]{};
     const int kind=vegetation?0:(street?2:1);
-    if(!logged[kind]){Log(vegetation?"vegetation uses world Z only, fixed XY, travel cap and parent-space correction":(street?"street objects use independent F3 grounded deformation":"buildings use independent F4 shared-group world-Z-only deformation"));logged[kind]=true;}
+    if(!logged[kind]){Log(vegetation?"vegetation uses world Z only, fixed XY, travel cap and parent-space correction":(street?"street objects use independent grounded deformation":"buildings use independent shared-group world-Z-only deformation"));logged[kind]=true;}
 }
 float GroundOffset(CVehicle* vehicle) {
     for(const auto& saved:groundOffsets) if(saved.vehicle==vehicle) return saved.z;
@@ -996,12 +1064,12 @@ static_assert(GameCallable<decltype(&RegisterCorona)>::value&&GameCallable<declt
     GameCallable<decltype(&RegisterBrightLight)>::value&&GameCallable<decltype(&StoreLightShadow)>::value,
     "Game entry points must use plain by-value data or references");
 uintptr_t LightReplacement(uintptr_t target) {
-    if(target==AddressForVersion(0x542690,retailExecutable))return reinterpret_cast<uintptr_t>(&RegisterCorona);
-    if(target==AddressForVersion(0x542380,retailExecutable))return reinterpret_cast<uintptr_t>(&RegisterTexturedCorona);
-    if(target==AddressForVersion(0x5422D0,retailExecutable))return reinterpret_cast<uintptr_t>(&UpdateCorona);
-    if(target==AddressForVersion(0x5675F0,retailExecutable))return reinterpret_cast<uintptr_t>(&AddPointLight);
-    if(target==AddressForVersion(0x571710,retailExecutable))return reinterpret_cast<uintptr_t>(&RegisterBrightLight);
-    if(target==AddressForVersion(0x56DBC0,retailExecutable))return reinterpret_cast<uintptr_t>(&StoreLightShadow);
+    if(target==AddressForVersion(0x542690,gameExe))return reinterpret_cast<uintptr_t>(&RegisterCorona);
+    if(target==AddressForVersion(0x542380,gameExe))return reinterpret_cast<uintptr_t>(&RegisterTexturedCorona);
+    if(target==AddressForVersion(0x5422D0,gameExe))return reinterpret_cast<uintptr_t>(&UpdateCorona);
+    if(target==AddressForVersion(0x5675F0,gameExe))return reinterpret_cast<uintptr_t>(&AddPointLight);
+    if(target==AddressForVersion(0x571710,gameExe))return reinterpret_cast<uintptr_t>(&RegisterBrightLight);
+    if(target==AddressForVersion(0x56DBC0,gameExe))return reinterpret_cast<uintptr_t>(&StoreLightShadow);
     return 0;
 }
 bool CallMatches(uintptr_t address,uintptr_t target) {
@@ -1102,14 +1170,26 @@ struct ProcessMemory {
     const unsigned char* At(uintptr_t a)const{return reinterpret_cast<const unsigned char*>(plugin::GetGlobalAddress(a));}
     uintptr_t Abs(uintptr_t a)const{return plugin::GetGlobalAddress(a);}
 };
+// Retail scenery and menu checks that are not part of GameLayout.
+struct RetailChecks {
+    uintptr_t trace,wind;
+    unsigned char buildings[6],treadables[6];
+    uintptr_t windCall,windHelperCall,windHelper,menuBeforeGame,menuDuringGame,menuDraw;
+};
+constexpr RetailChecks retailChecks10EN={0x4D8B00,0x487A20,{0x8B,0x0D,0x40,0xF2,0x97,0},{0x8B,0x0D,0x34,0x88,0x97,0},
+    0x488958,0x487C2E,0x629C90,0x4A5D33,0x4A612E,0x4A37A4};
+constexpr RetailChecks retailChecks11EN={0x4D8B20,0x487A20,{0x8B,0x0D,0x48,0xF2,0x97,0},{0x8B,0x0D,0x3C,0x88,0x97,0},
+    0x488958,0x487C2E,0x629CE0,0x4A5D53,0x4A614E,0x4A37C5};
 bool CheckGame(){
     const auto version=plugin::GetGameVersion();
-    if(version!=GAME_STEAM&&version!=GAME_10EN){Log("unsupported executable; requires Steam or 1.0 EN");return false;}
-    retailExecutable=version==GAME_10EN;layout=retailExecutable?&layout10EN:&layoutSteam;
+    if(version!=GAME_STEAM&&version!=GAME_10EN&&version!=GAME_11EN){Log("unsupported executable; requires Steam, 1.0 EN or 1.1 EN");return false;}
+    gameExe=version==GAME_10EN?GameExe::Retail10:version==GAME_11EN?GameExe::Retail11:GameExe::Steam;
+    layout=gameExe==GameExe::Retail10?&layout10EN:gameExe==GameExe::Retail11?&layout11EN:&layoutSteam;
     lightCallsites.assign(layout->lightCallsites.begin(),layout->lightCallsites.end());
-    const auto extra=retailExecutable?Whole(sceneryLightsRetail):Whole(sceneryLightsSteam);
+    const auto extra=gameExe==GameExe::Retail10?Whole(sceneryLightsRetail):gameExe==GameExe::Retail11?Whole(sceneryLights11EN):Whole(sceneryLightsSteam);
     lightCallsites.insert(lightCallsites.end(),extra.begin(),extra.end());
-    if(!retailExecutable)return CheckSteam();
+    if(gameExe==GameExe::Steam)return CheckSteam();
+    const RetailChecks& retail=gameExe==GameExe::Retail11?retailChecks11EN:retailChecks10EN;
     std::string failure;
     if(!VerifyLayout(*layout,ProcessMemory{},failure)){Log(failure);return false;}
     const VehicleHook hooks[]={layout->automobile,layout->boat,layout->heli,layout->plane,layout->bike};
@@ -1120,9 +1200,9 @@ bool CheckGame(){
     for(auto s:extra)if(!CallMatches(s.address,s.target)){Log("retail scenery light call mismatch");return false;}
     const unsigned char trace[]={0x53,0x56,0x55,0x83,0xEC,0x40};
     const unsigned char wind[]={0x53,0x89,0xCB,0x83,0xEC,0x50};
-    const unsigned char buildings[]={0x8B,0x0D,0x40,0xF2,0x97,0};
-    const unsigned char treadables[]={0x8B,0x0D,0x34,0x88,0x97,0};
-    if(!BytesMatch(0x4D8B00,trace,sizeof(trace))||!BytesMatch(0x407D70,buildings,sizeof(buildings))||!BytesMatch(0x407D4B,treadables,sizeof(treadables))||!BytesMatch(0x487A20,wind,sizeof(wind))||!CallMatches(0x488958,0x487A20)||!CallMatches(0x487C2E,0x629C90)||!CallMatches(0x4A5D33,0x4A37A4)||!CallMatches(0x4A612E,0x4A37A4)){
+    if(!BytesMatch(retail.trace,trace,sizeof(trace))||!BytesMatch(0x407D70,retail.buildings,sizeof(retail.buildings))||!BytesMatch(0x407D4B,retail.treadables,sizeof(retail.treadables))||
+       !BytesMatch(retail.wind,wind,sizeof(wind))||!CallMatches(retail.windCall,retail.wind)||!CallMatches(retail.windHelperCall,retail.windHelper)||
+       !CallMatches(retail.menuBeforeGame,retail.menuDraw)||!CallMatches(retail.menuDuringGame,retail.menuDraw)){
         Log("retail scenery/menu signature mismatch");return false;
     }
     updateFrame=reinterpret_cast<UpdateFrameFn>(GameAddress(0x643CB0));
@@ -1142,8 +1222,12 @@ struct ViceBounce {
 #endif
         exceptionLog=CreateFileA((dir+"ViceBounce-crash.log").c_str(),FILE_APPEND_DATA,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
         AddVectoredExceptionHandler(0,RecordException);
-        Log(std::string("ViceBounce 0.20 startup; ")+plugin::GetGameVersionName());
+        Log(std::string("ViceBounce 1.0.0 startup; ")+plugin::GetGameVersionName());
         if(!CheckGame()) return;
+        onlineFontReady=VerifyMenuFont(gameExe,ProcessMemory{});
+        if(!onlineFontReady)Log("mod menu font verification failed; picker fallback active, bounce unaffected");
+        menuQuadReady=onlineFontReady&&VerifyMenuQuad(gameExe,ProcessMemory{});
+        if(onlineFontReady&&!menuQuadReady)Log("mod menu skewed frame unavailable (DrawAnyRect differs); rectangular panel");
         LoadConfig();
         savedFrames.reserve(256);
         savedBones.reserve(64);
@@ -1194,8 +1278,11 @@ struct ViceBounce {
         plugin::Events::pedRenderEvent.before+=BeforePedRender;
         plugin::Events::drawingEvent.before+=Tick;
         steamMenuDrawingEvent.before+=MusicPickerControls;
-        Log("F11 music picker enabled in gameplay, pause and main menu");
+        steamMenuDrawingEvent.after+=DrawModMenu;
+        plugin::Events::drawHudEvent.after+=DrawModMenu;
+        Log("ViceBounce menu enabled on F11 in gameplay, vehicles, pause and main menu; music picker is a menu item only");
         plugin::Events::gameProcessEvent.before+=[]{
+            if(modMenuOpen)ClearModMenuKeys();
             RestoreFrames();
             sceneryGroundQueriesAllowed=true;
             auto pending=std::move(pendingGroundQueries);pendingGroundQueries.clear();

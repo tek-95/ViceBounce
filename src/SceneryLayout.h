@@ -37,9 +37,70 @@ constexpr LightCallsite sceneryLightsRetail[]={
     {0x465A92,0x5427A0},
     {0x465BB3,0x5427A0},
 };
+constexpr LightCallsite sceneryLights11EN[]={
+    {0x541A00,0x5424B0},
+    {0x541AFA,0x567720},
+    {0x541B70,0x567720},
+    {0x541CF7,0x567720},
+    {0x46471F,0x567720},
+    {0x464AC3,0x5427C0},
+    {0x464B36,0x571840},
+    {0x464BD4,0x571840},
+    {0x464DC0,0x571840},
+    {0x464E85,0x567720},
+    {0x46510B,0x5427C0},
+    {0x4656CA,0x571840},
+    {0x46573C,0x571840},
+    {0x465801,0x567720},
+    {0x465A92,0x5427C0},
+    {0x465BB3,0x5427C0},
+};
 constexpr uintptr_t sceneryVtablesRetail[]={0x68658C,0x6865DC,0x68B360,0x68B5DC,0x68F6B4,0x6915DC,0x6917A0,0x69C9F4};
-inline uintptr_t AddressForVersion(uintptr_t address,bool retail){
-    if(!retail)return address;
+// The executable the plugin runs in. Game addresses in the code are written for Steam and translated here.
+enum class GameExe { Steam, Retail10, Retail11 };
+inline uintptr_t AddressFor11(uintptr_t address){
+    switch(address){
+    case 0x4886F0:return 0x488810;
+    case 0x4895A0:return 0x4896C0;
+    case 0x4D89C0:return 0x4D8B20;
+    case 0x4DFFF0:return 0x4E0150;
+    case 0x4E0400:return 0x4E0560;
+    case 0x5422D0:return 0x542400;
+    case 0x542380:return 0x5424B0;
+    case 0x542690:return 0x5427C0;
+    case 0x5675F0:return 0x567720;
+    case 0x56DBC0:return 0x56DCF0;
+    case 0x571710:return 0x571840;
+    case 0x57F080:return 0x57F270;
+    case 0x5895C0:return 0x5897B0;
+    case 0x589900:return 0x589AF0;
+    case 0x5A4C10:return 0x5A4E00;
+    case 0x5A53A0:return 0x5A5590;
+    case 0x5AEFD0:return 0x5AF1C0;
+    case 0x5AF4C0:return 0x5AF6B0;
+    case 0x5B23A0:return 0x5B2590;
+    case 0x5B23C0:return 0x5B25B0;
+    case 0x60A970:return 0x60AD30;
+    case 0x60A9B0:return 0x60AD70;
+    case 0x643CB0:return 0x644D50;
+    case 0x643D30:return 0x644DD0;
+    case 0x690594:return 0x69158C;
+    case 0x699D90:return 0x69AD90;
+    case 0x69A0B4:return 0x69B0B4;
+    case 0x69B21C:return 0x69C21C;
+    case 0x69B3F8:return 0x69C3F8;
+    case 0x6D6B04:return 0x6D7B0C;
+    case 0x92C4D0:return 0x92D4D0;
+    case 0x937290:return 0x938290;
+    case 0xA0EC7C:return 0xA0FC7C;
+    case 0xA0FABA:return 0xA10ABA;
+    case 0xA0FAF6:return 0xA10AFE;
+    default:return address;
+    }
+}
+inline uintptr_t AddressForVersion(uintptr_t address,GameExe exe){
+    if(exe==GameExe::Steam)return address;
+    if(exe==GameExe::Retail11)return AddressFor11(address);
     switch(address){
     case 0x4886F0:return 0x488810;
     case 0x4895A0:return 0x4896C0;
